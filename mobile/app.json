@@ -1,0 +1,18 @@
+{
+  "expo": {
+    "name": "RxVault",
+    "slug": "rxvault",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "backgroundColor": "#0B1220"
+    },
+    "android": {
+      "package": "com.rxvault.app"
+    },
+    "ios": {
+      "bundleIdentifier": "com.rxvault.app"
+    }
+  }
+}

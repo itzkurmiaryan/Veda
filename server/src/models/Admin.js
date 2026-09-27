@@ -1,0 +1,2 @@
+const mongoose = require('mongoose');
+module.exports = mongoose.model('Admin', new mongoose.Schema({ name: { type: String, default: 'Administrator', trim: true }, email: { type: String, required: true, unique: true, lowercase: true, trim: true }, password: { type: String, required: true } }, { timestamps: true }));

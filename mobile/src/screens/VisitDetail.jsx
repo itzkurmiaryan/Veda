@@ -1651,7 +1651,7 @@ function createPrescriptionHtml(
 
   const clinicName =
     doctor?.clinicName ||
-    'RxVault Clinic';
+    'Veda Clinic';
 
   const clinicAddress =
     doctor?.clinicAddress ||
@@ -2052,29 +2052,39 @@ body {
 }
 
 
-.rx-symbol {
-  font-family: Georgia, serif;
-  font-size: 32px;
-  font-weight: bold;
-}
+  .veda-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, #dff9f6 0%, #dfeeff 100%);
+    border: 1px solid #bfe7e2;
+    border-radius: 12px;
+    padding: 8px 12px 8px 10px;
+    color: #10233f;
+    font-weight: 900;
+    box-shadow: 0 8px 20px rgba(16, 35, 63, 0.06);
+  }
 
 
-.rx-label {
-  display: inline-block;
-  margin-left: 9px;
-  color: #10233f;
-  font-size: 10px;
-  font-weight: bold;
-  letter-spacing: 1.6px;
-  vertical-align: middle;
-}
+  .veda-mark {
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: linear-gradient(135deg, #10233f 0%, #1769ff 100%);
+    color: #ffffff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 900;
+    letter-spacing: 0.3px;
+  }
 
 
-.prescription-date {
-  text-align: right;
-  font-size: 9px;
-  font-weight: bold;
-  color: #1769ff;
+  .veda-word {
+    font-size: 11px;
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
 }
 
 
@@ -2240,11 +2250,10 @@ li {
 
 .medicine-rx {
   color: #1769ff;
-  font-family: Georgia, serif;
-  font-size: 22px;
-  line-height: 1;
-}
-
+    font-size: 13px;
+    line-height: 1;
+    letter-spacing: 1px;
+    font-weight: 900;
 
 .medicine-table th {
   background: #10233f;
@@ -2507,11 +2516,11 @@ li {
 
     <tr>
 
-      <td class="rx-symbol">
-        ℞
-        <span class="rx-label">
-          PRESCRIPTION
-        </span>
+      <td>
+        <div class="veda-badge">
+          <div class="veda-mark">V</div>
+          <div class="veda-word">Veda</div>
+        </div>
       </td>
 
       <td class="prescription-date">
@@ -2748,7 +2757,7 @@ li {
 
     <div class="section-title medicine-heading">
       <span>Prescription</span>
-      <span class="medicine-rx">℞</span>
+      <span class="medicine-rx">Veda</span>
     </div>
 
 

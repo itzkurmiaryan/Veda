@@ -1,4 +1,73 @@
-import React from 'react';import {NavigationContainer} from '@react-navigation/native';import {createNativeStackNavigator} from '@react-navigation/native-stack';import {AuthProvider,useAuth} from './src/context/AuthContext';import Login from './src/screens/Login';import Register from './src/screens/Register';import Dashboard from './src/screens/Dashboard';import AdminDashboard from './src/screens/AdminDashboard';import AdminDoctorEdit from './src/screens/AdminDoctorEdit';import Profile from './src/screens/Profile';import Patients from './src/screens/Patients';import AddPatient from './src/screens/AddPatient';import PatientDetail from './src/screens/PatientDetail';import CreateVisit from './src/screens/CreateVisit';import EditVisit from './src/screens/EditVisit';import VisitDetail from './src/screens/VisitDetail';
-const Stack=createNativeStackNavigator();
-function AppNav(){const {token,role,loading}=useAuth();if(loading)return null;return <NavigationContainer><Stack.Navigator screenOptions={{headerStyle:{backgroundColor:'#10233F'},headerTintColor:'#fff',headerTitleStyle:{fontWeight:'900'},headerShadowVisible:false,contentStyle:{backgroundColor:'#F4F8FC'},animation:'fade'}}>{token?(role==='admin'?<><Stack.Screen name="AdminDashboard" component={AdminDashboard} options={{title:'Admin Console'}}/><Stack.Screen name="AdminDoctorEdit" component={AdminDoctorEdit} options={{title:'Doctor Overview'}}/><Stack.Screen name="Profile" component={Profile} options={{title:'Admin Profile'}}/></>:<><Stack.Screen name="Dashboard" component={Dashboard} options={{title:'RxVault'}}/><Stack.Screen name="Profile" component={Profile} options={{title:'My Profile'}}/><Stack.Screen name="Patients" component={Patients} options={{title:'Patients'}}/><Stack.Screen name="AddPatient" component={AddPatient} options={{title:'New Patient'}}/><Stack.Screen name="PatientDetail" component={PatientDetail} options={{title:'Patient Record'}}/><Stack.Screen name="CreateVisit" component={CreateVisit} options={{title:'New Prescription'}}/><Stack.Screen name="EditVisit" component={EditVisit} options={{title:'Edit Prescription'}}/><Stack.Screen name="VisitDetail" component={VisitDetail} options={{title:'Prescription'}}/></>):<><Stack.Screen name="Login" component={Login} options={{headerShown:false}}/><Stack.Screen name="Register" component={Register} options={{title:'Doctor Registration'}}/></>}</Stack.Navigator></NavigationContainer>}
-export default function App(){return <AuthProvider><AppNav/></AuthProvider>}
+import React from 'react';
+import { NavigationContainer } from '@react-navigation/native';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { AuthProvider, useAuth } from './src/context/AuthContext';
+import Login from './src/screens/Login';
+import Register from './src/screens/Register';
+import Dashboard from './src/screens/Dashboard';
+import AdminDashboard from './src/screens/AdminDashboard';
+import AdminDoctorEdit from './src/screens/AdminDoctorEdit';
+import Profile from './src/screens/Profile';
+import Patients from './src/screens/Patients';
+import AddPatient from './src/screens/AddPatient';
+import PatientDetail from './src/screens/PatientDetail';
+import CreateVisit from './src/screens/CreateVisit';
+import EditVisit from './src/screens/EditVisit';
+import VisitDetail from './src/screens/VisitDetail';
+
+const Stack = createNativeStackNavigator();
+
+function AppNav() {
+  const { token, role, loading } = useAuth();
+
+  if (loading) return null;
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator
+        screenOptions={{
+          headerStyle: { backgroundColor: '#0F172A' },
+          headerTintColor: '#FFFFFF',
+          headerTitleStyle: { fontWeight: '900' },
+          headerShadowVisible: false,
+          contentStyle: { backgroundColor: '#EEF5FF' },
+          animation: 'fade',
+        }}
+      >
+        {token ? (
+          role === 'admin' ? (
+            <>
+              <Stack.Screen name="AdminDashboard" component={AdminDashboard} options={{ title: 'Veda Admin' }} />
+              <Stack.Screen name="AdminDoctorEdit" component={AdminDoctorEdit} options={{ title: 'Doctor Overview' }} />
+              <Stack.Screen name="Profile" component={Profile} options={{ title: 'Admin Profile' }} />
+            </>
+          ) : (
+            <>
+              <Stack.Screen name="Dashboard" component={Dashboard} options={{ title: 'Veda' }} />
+              <Stack.Screen name="Profile" component={Profile} options={{ title: 'My Profile' }} />
+              <Stack.Screen name="Patients" component={Patients} options={{ title: 'Patients' }} />
+              <Stack.Screen name="AddPatient" component={AddPatient} options={{ title: 'New Patient' }} />
+              <Stack.Screen name="PatientDetail" component={PatientDetail} options={{ title: 'Patient Record' }} />
+              <Stack.Screen name="CreateVisit" component={CreateVisit} options={{ title: 'New Prescription' }} />
+              <Stack.Screen name="EditVisit" component={EditVisit} options={{ title: 'Edit Prescription' }} />
+              <Stack.Screen name="VisitDetail" component={VisitDetail} options={{ title: 'Prescription' }} />
+            </>
+          )
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={Login} options={{ headerShown: false }} />
+            <Stack.Screen name="Register" component={Register} options={{ title: 'Doctor Registration' }} />
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppNav />
+    </AuthProvider>
+  );
+}

@@ -67,7 +67,7 @@ export function createPrescriptionHtml(
     doctor?.name || 'Doctor';
 
   const clinicName =
-    doctor?.clinicName || 'RxVault Clinic';
+    doctor?.clinicName || 'Veda Clinic';
 
   const clinicAddress =
     doctor?.clinicAddress || '';
@@ -267,8 +267,8 @@ body {
   margin: 0;
   padding: 0;
   font-family: Arial, Helvetica, sans-serif;
-  color: #111827;
-  background: white;
+  color: #10233f;
+  background: #f8fbff;
   font-size: 10px;
 }
 
@@ -276,13 +276,19 @@ body {
   width: 100%;
   min-height: 270mm;
   position: relative;
+  background: linear-gradient(180deg, #ffffff 0%, #f8fbff 100%);
+  padding: 14mm 12mm;
 }
 
 .header {
   width: 100%;
-  border-bottom: 2px solid #111827;
-  padding-bottom: 12px;
+  border: 1px solid #dfe8f2;
+  background: linear-gradient(135deg, #0f172a 0%, #163b6b 100%);
+  border-radius: 14px;
+  padding: 14px 16px 12px;
   margin-bottom: 14px;
+  color: white;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
 }
 
 .header-table {
@@ -291,47 +297,53 @@ body {
 }
 
 .header-left {
-  width: 65%;
+  width: 62%;
   vertical-align: top;
 }
 
 .header-right {
-  width: 35%;
+  width: 38%;
   vertical-align: top;
   text-align: right;
 }
 
 .doctor-name {
-  font-size: 23px;
+  font-size: 25px;
   font-weight: bold;
-  margin: 0 0 5px 0;
+  letter-spacing: 0.2px;
+  margin: 0 0 6px 0;
+  color: #ffffff;
 }
 
 .qualification {
   font-size: 10px;
-  color: #4b5563;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .registration {
   font-size: 9px;
-  color: #6b7280;
-  margin-top: 4px;
+  color: rgba(255, 255, 255, 0.72);
+  margin-top: 5px;
 }
 
 .logo {
-  max-width: 65px;
-  max-height: 55px;
-  margin-bottom: 4px;
+  max-width: 62px;
+  max-height: 58px;
+  margin-bottom: 5px;
+  border-radius: 12px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .clinic-name {
   font-size: 14px;
   font-weight: bold;
+  color: #ffffff;
 }
 
 .clinic-info {
   font-size: 8.5px;
-  color: #4b5563;
+  color: rgba(255, 255, 255, 0.78);
   line-height: 1.5;
 }
 
@@ -345,22 +357,52 @@ body {
   border-collapse: collapse;
 }
 
-.rx-symbol {
-  font-family: Georgia, serif;
-  font-size: 32px;
+.brand-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  background: linear-gradient(135deg, #dff8f5 0%, #dfeeff 100%);
+  border: 1px solid #bfe5e2;
+  border-radius: 12px;
+  padding: 8px 12px 8px 10px;
+  color: #0f172a;
   font-weight: bold;
+}
+
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #0f172a 0%, #1d4ed8 100%);
+  color: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0.4px;
+}
+
+.brand-name {
+  font-size: 11px;
+  letter-spacing: 1.4px;
+  text-transform: uppercase;
 }
 
 .date {
   text-align: right;
   font-size: 10px;
   font-weight: bold;
+  color: #10233f;
 }
 
 .box {
-  border: 1px solid #cbd5e1;
-  padding: 9px;
+  border: 1px solid #d8e3f1;
+  background: #ffffff;
+  border-radius: 12px;
+  padding: 9px 10px;
   margin-bottom: 12px;
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.02);
 }
 
 .heading {
@@ -368,8 +410,8 @@ body {
   font-weight: bold;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: #374151;
-  border-bottom: 1px solid #d1d5db;
+  color: #1d4ed8;
+  border-bottom: 1px solid #dfe8f2;
   padding-bottom: 5px;
   margin-bottom: 7px;
 }
@@ -651,8 +693,11 @@ li {
 
       <tr>
 
-        <td class="rx-symbol">
-          ℞
+        <td>
+          <div class="brand-badge">
+            <div class="brand-mark">V</div>
+            <div class="brand-name">Veda</div>
+          </div>
         </td>
 
         <td class="date">
@@ -986,7 +1031,7 @@ li {
 
     ${escapeHtml(clinicName)}
     &nbsp; • &nbsp;
-    Prescription
+    Veda Digital Prescription
 
   </div>
 

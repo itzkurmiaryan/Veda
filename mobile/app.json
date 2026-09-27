@@ -1,18 +1,18 @@
 {
   "expo": {
-    "name": "RxVault",
-    "slug": "rxvault",
+    "name": "Veda",
+    "slug": "veda",
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "splash": {
-      "backgroundColor": "#0B1220"
+      "backgroundColor": "#0F172A"
     },
     "android": {
-      "package": "com.rxvault.app"
+      "package": "com.veda.app"
     },
     "ios": {
-      "bundleIdentifier": "com.rxvault.app"
+      "bundleIdentifier": "com.veda.app"
     }
   }
 }

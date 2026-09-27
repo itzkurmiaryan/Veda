@@ -3,9 +3,12 @@ import React, { useEffect, useRef } from 'react';
 import {
   ActivityIndicator,
   Animated,
+  KeyboardAvoidingView,
   Platform,
   Pressable,
+  SafeAreaView,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
@@ -14,14 +17,15 @@ import {
 } from 'react-native';
 
 export const colors = {
-  ink: '#10233F',
-  muted: '#6B7A90',
-  blue: '#1769FF',
-  cyan: '#17C3B2',
-  wash: '#F4F8FC',
-  line: '#DFE8F2',
+  ink: '#0F172A',
+  muted: '#5D6B82',
+  blue: '#1D4ED8',
+  cyan: '#14B8A6',
+  wash: '#EEF5FF',
+  line: '#DDE7F5',
   white: '#FFFFFF',
-  danger: '#D94A61',
+  danger: '#E11D48',
+  panel: '#F8FBFF',
 };
 
 export const Screen = ({
@@ -45,19 +49,35 @@ export const Screen = ({
     </View>
   );
 
-  if (scroll) {
-    return (
-      <ScrollView
-        style={styles.screen}
-        contentContainerStyle={styles.scroll}
-        keyboardShouldPersistTaps="handled"
-      >
-        {inner}
-      </ScrollView>
-    );
-  }
+  const content = scroll ? (
+    <ScrollView
+      style={styles.screen}
+      contentContainerStyle={styles.scroll}
+      keyboardShouldPersistTaps="handled"
+      showsVerticalScrollIndicator={false}
+      bounces={false}
+    >
+      {inner}
+    </ScrollView>
+  ) : (
+    <View style={styles.screen}>{inner}</View>
+  );
 
-  return <View style={styles.screen}>{inner}</View>;
+  return (
+    <SafeAreaView style={styles.safeArea}>
+      <StatusBar
+        barStyle={Platform.OS === 'ios' ? 'dark-content' : 'light-content'}
+        backgroundColor={colors.ink}
+      />
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 24 : 0}
+      >
+        {content}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
 };
 
 export const Input = ({
@@ -66,11 +86,7 @@ export const Input = ({
 }) => {
   return (
     <View style={styles.field}>
-      {label ? (
-        <Text style={styles.label}>
-          {label}
-        </Text>
-      ) : null}
+      {label ? <Text style={styles.label}>{label}</Text> : null}
 
       <TextInput
         {...props}
@@ -90,30 +106,16 @@ export const Button = ({
   disabled = false,
   icon,
 }) => {
-  const scale = useRef(
-    new Animated.Value(1)
-  ).current;
+  const scale = useRef(new Animated.Value(1)).current;
 
   const handlePress = () => {
-    console.log('🟢 BUTTON PRESSED:', title);
-
     if (disabled) {
-      console.log('⚠️ BUTTON IS DISABLED:', title);
       return;
     }
 
     if (typeof onPress !== 'function') {
-      console.log(
-        '❌ NO onPress FUNCTION:',
-        title
-      );
       return;
     }
-
-    console.log(
-      '➡️ Executing onPress:',
-      title
-    );
 
     onPress();
   };
@@ -135,11 +137,7 @@ export const Button = ({
   };
 
   return (
-    <Animated.View
-      style={{
-        transform: [{ scale }],
-      }}
-    >
+    <Animated.View style={{ transform: [{ scale }] }}>
       <Pressable
         disabled={disabled}
         onPress={handlePress}
@@ -167,43 +165,17 @@ export const Button = ({
   );
 };
 
-export const Card = ({
-  children,
-  accent = false,
-}) => {
-  return (
-    <View
-      style={[
-        styles.card,
-        accent && styles.accentCard,
-      ]}
-    >
-      {children}
-    </View>
-  );
+export const Card = ({ children, accent = false }) => {
+  return <View style={[styles.card, accent && styles.accentCard]}>{children}</View>;
 };
 
 export const Loading = () => {
-  return (
-    <ActivityIndicator
-      size="large"
-      color={colors.blue}
-      style={{ margin: 34 }}
-    />
-  );
+  return <ActivityIndicator size="large" color={colors.blue} style={{ margin: 34 }} />;
 };
 
-export const FadeIn = ({
-  children,
-  delay = 0,
-}) => {
-  const opacity = useRef(
-    new Animated.Value(0)
-  ).current;
-
-  const translate = useRef(
-    new Animated.Value(12)
-  ).current;
+export const FadeIn = ({ children, delay = 0 }) => {
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translate = useRef(new Animated.Value(12)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -213,7 +185,6 @@ export const FadeIn = ({
         delay,
         useNativeDriver: Platform.OS !== 'web',
       }),
-
       Animated.timing(translate, {
         toValue: 0,
         duration: 420,
@@ -221,17 +192,13 @@ export const FadeIn = ({
         useNativeDriver: Platform.OS !== 'web',
       }),
     ]).start();
-  }, []);
+  }, [delay]);
 
   return (
     <Animated.View
       style={{
         opacity,
-        transform: [
-          {
-            translateY: translate,
-          },
-        ],
+        transform: [{ translateY: translate }],
       }}
     >
       {children}
@@ -241,36 +208,44 @@ export const FadeIn = ({
 
 const shadow = Platform.select({
   web: {
-    boxShadow:
-      '0 10px 28px rgba(16,35,63,.08)',
+    boxShadow: '0 16px 36px rgba(15, 23, 42, 0.08)',
   },
-
   default: {
-    elevation: 3,
-    shadowColor: '#10233F',
+    elevation: 4,
+    shadowColor: '#0F172A',
     shadowOpacity: 0.08,
-    shadowRadius: 12,
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
   },
 });
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
+
+  safeArea: {
+    flex: 1,
+    backgroundColor: colors.wash,
+  },
+
   screen: {
     flex: 1,
     backgroundColor: colors.wash,
   },
 
   scroll: {
-    padding: 14,
-    paddingBottom: 34,
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 36,
   },
 
   screenInner: {
+    flex: 1,
     width: '100%',
     alignSelf: 'center',
+    paddingBottom: 10,
   },
 
   field: {
@@ -292,7 +267,8 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
     borderRadius: 14,
     paddingHorizontal: 15,
-    paddingVertical: 13,
+    paddingVertical: 14,
+    minHeight: 52,
     fontSize: 16,
     color: colors.ink,
   },
@@ -303,13 +279,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     borderRadius: 14,
     alignItems: 'center',
+    justifyContent: 'center',
     marginVertical: 6,
     minHeight: 52,
-    justifyContent: 'center',
   },
 
   secondary: {
-    backgroundColor: '#E8F1FF',
+    backgroundColor: '#EAF4FF',
   },
 
   danger: {
@@ -324,7 +300,7 @@ const styles = StyleSheet.create({
     color: colors.white,
     fontWeight: '900',
     fontSize: 15,
-    letterSpacing: 0.3,
+    letterSpacing: 0.25,
   },
 
   secondaryText: {
@@ -341,6 +317,8 @@ const styles = StyleSheet.create({
       borderRadius: 20,
       padding: 18,
       marginBottom: 14,
+      borderWidth: 1,
+      borderColor: 'rgba(221, 231, 245, 0.9)',
     },
     shadow,
   ],

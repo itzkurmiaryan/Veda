@@ -88,7 +88,7 @@ export default function AdminDashboard({ navigation }) {
       <FadeIn>
         <View style={{ paddingTop: 10, paddingBottom: 18 }}>
           <Text style={{ fontSize: 13, fontWeight: '900', letterSpacing: 1, color: colors.cyan }}>
-            RXVAULT  /  ADMIN CONSOLE
+            VEDA  /  ADMIN CONSOLE
           </Text>
           <Text style={{ fontSize: 32, lineHeight: 38, fontWeight: '900', color: colors.ink, marginTop: 8 }}>
             Good morning, {doctor?.name?.split(' ')[0] || 'Admin'}

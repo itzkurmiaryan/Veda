@@ -5,14 +5,29 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
+
+    "icon": "./assets/veda.png",
+
     "splash": {
       "backgroundColor": "#0F172A"
     },
+
     "android": {
-      "package": "com.veda.app"
+      "package": "com.veda.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/veda.png",
+        "backgroundColor": "#0F172A"
+      }
     },
+
     "ios": {
       "bundleIdentifier": "com.veda.app"
+    },
+
+    "extra": {
+      "eas": {
+        "projectId": "c546e41d-4ad5-46d8-8ac7-c395d78a22cf"
+      }
     }
   }
 }

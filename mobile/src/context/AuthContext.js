@@ -37,6 +37,50 @@ export function AuthProvider({
   const [loading, setLoading] =
     useState(true);
 
+  /*
+   * Global authentication/action status
+   *
+   * This will be used by the global
+   * Veda loading UI.
+   */
+  const [actionLoading, setActionLoading] =
+    useState(false);
+
+  const [actionMessage, setActionMessage] =
+    useState('');
+
+  const [actionSubMessage, setActionSubMessage] =
+    useState('');
+
+
+  // =================================================
+  // GLOBAL ACTION LOADER
+  // =================================================
+
+  const startAction = (
+    message = 'Please wait...',
+    subMessage = 'Veda is processing your request.'
+  ) => {
+
+    setActionMessage(message);
+    setActionSubMessage(subMessage);
+    setActionLoading(true);
+
+  };
+
+
+  const stopAction = () => {
+
+    setActionLoading(false);
+    setActionMessage('');
+    setActionSubMessage('');
+
+  };
+
+
+  // =================================================
+  // LOAD SAVED AUTH
+  // =================================================
 
   useEffect(() => {
 
@@ -66,26 +110,34 @@ export function AuthProvider({
 
 
         if (savedToken) {
+
           setToken(savedToken);
+
         }
 
 
         if (savedDoctor) {
+
           setDoctor(
             JSON.parse(savedDoctor)
           );
+
         }
 
 
         if (savedUser) {
+
           setUser(
             JSON.parse(savedUser)
           );
+
         }
 
 
         if (savedRole) {
+
           setRole(savedRole);
+
         }
 
       } catch (error) {
@@ -118,60 +170,142 @@ export function AuthProvider({
     password
   ) => {
 
-    const response =
-      await api.post(
-        '/auth/login',
-        {
-          email,
-          password,
-        }
-      );
-
-
-    const data =
-      response.data;
-
-
-    await AsyncStorage.setItem(
-      'rxvault_token',
-      data.token
+    startAction(
+      'Connecting to Veda...',
+      'Securely connecting to healthcare services.'
     );
 
 
-    await AsyncStorage.setItem(
-      'rxvault_role',
-      data.role
-    );
+    try {
 
+      /*
+       * Render may be sleeping.
+       *
+       * The request can therefore take a little
+       * longer while the server wakes up.
+       */
 
-    if (data.user) {
-
-      await AsyncStorage.setItem(
-        'rxvault_user',
-        JSON.stringify(data.user)
+      setActionMessage(
+        'Waking up Veda server...'
       );
 
-      setUser(data.user);
-
-    }
-
-
-    if (data.doctor) {
-
-      await AsyncStorage.setItem(
-        'rxvault_doctor',
-        JSON.stringify(data.doctor)
+      setActionSubMessage(
+        'Please wait while we establish a secure connection.'
       );
 
-      setDoctor(data.doctor);
+
+      const response =
+        await api.post(
+          '/auth/login',
+          {
+            email,
+            password,
+          }
+        );
+
+
+      setActionMessage(
+        'Verifying your account...'
+      );
+
+      setActionSubMessage(
+        'Checking your secure Veda credentials.'
+      );
+
+
+      const data =
+        response.data;
+
+
+      if (!data?.token) {
+
+        throw new Error(
+          'Login was unsuccessful. Please try again.'
+        );
+
+      }
+
+
+      await AsyncStorage.setItem(
+        'rxvault_token',
+        data.token
+      );
+
+
+      if (data.role) {
+
+        await AsyncStorage.setItem(
+          'rxvault_role',
+          data.role
+        );
+
+      }
+
+
+      if (data.user) {
+
+        await AsyncStorage.setItem(
+          'rxvault_user',
+          JSON.stringify(
+            data.user
+          )
+        );
+
+        setUser(data.user);
+
+      }
+
+
+      if (data.doctor) {
+
+        await AsyncStorage.setItem(
+          'rxvault_doctor',
+          JSON.stringify(
+            data.doctor
+          )
+        );
+
+        setDoctor(data.doctor);
+
+      }
+
+
+      setActionMessage(
+        'Preparing your workspace...'
+      );
+
+      setActionSubMessage(
+        'Almost there. Your Veda dashboard is getting ready.'
+      );
+
+
+      setToken(data.token);
+      setRole(data.role);
+
+
+      /*
+       * Small delay gives the user a smooth
+       * transition instead of an instant jump.
+       */
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(resolve, 500)
+      );
+
+
+      stopAction();
+
+
+      return data;
+
+    } catch (error) {
+
+      stopAction();
+
+      throw error;
 
     }
-
-
-    setToken(data.token);
-    setRole(data.role);
-
-    return data;
 
   };
 
@@ -184,59 +318,107 @@ export function AuthProvider({
     data
   ) => {
 
-    const response =
-      await api.post(
-        '/auth/register',
-        data
+    startAction(
+      'Creating your account...',
+      'Connecting securely to Veda.'
+    );
+
+
+    try {
+
+      setActionMessage(
+        'Creating your profile...'
+      );
+
+      setActionSubMessage(
+        'Please wait while your information is being processed.'
       );
 
 
-    const result =
-      response.data;
+      const response =
+        await api.post(
+          '/auth/register',
+          data
+        );
 
 
-    // If admin approval system is enabled,
-    // registration may return 202 instead of token.
-
-    if (
-      result.token &&
-      result.doctor
-    ) {
-
-      await AsyncStorage.setItem(
-        'rxvault_token',
-        result.token
-      );
-
-      await AsyncStorage.setItem(
-        'rxvault_role',
-        'doctor'
-      );
-
-      await AsyncStorage.setItem(
-        'rxvault_doctor',
-        JSON.stringify(
-          result.doctor
-        )
-      );
-
-      await AsyncStorage.setItem(
-        'rxvault_user',
-        JSON.stringify(
-          result.doctor
-        )
-      );
+      const result =
+        response.data;
 
 
-      setToken(result.token);
-      setRole('doctor');
-      setDoctor(result.doctor);
-      setUser(result.doctor);
+      /*
+       * If admin approval system is enabled,
+       * registration may return 202 instead of token.
+       */
+
+      if (
+        result.token &&
+        result.doctor
+      ) {
+
+        setActionMessage(
+          'Setting up your workspace...'
+        );
+
+        setActionSubMessage(
+          'Your Veda profile is almost ready.'
+        );
+
+
+        await AsyncStorage.setItem(
+          'rxvault_token',
+          result.token
+        );
+
+
+        await AsyncStorage.setItem(
+          'rxvault_role',
+          'doctor'
+        );
+
+
+        await AsyncStorage.setItem(
+          'rxvault_doctor',
+          JSON.stringify(
+            result.doctor
+          )
+        );
+
+
+        await AsyncStorage.setItem(
+          'rxvault_user',
+          JSON.stringify(
+            result.doctor
+          )
+        );
+
+
+        setToken(result.token);
+        setRole('doctor');
+        setDoctor(result.doctor);
+        setUser(result.doctor);
+
+
+        await new Promise(
+          (resolve) =>
+            setTimeout(resolve, 500)
+        );
+
+      }
+
+
+      stopAction();
+
+
+      return result;
+
+    } catch (error) {
+
+      stopAction();
+
+      throw error;
 
     }
-
-
-    return result;
 
   };
 
@@ -249,24 +431,49 @@ export function AuthProvider({
     updatedDoctor
   ) => {
 
-    setDoctor(updatedDoctor);
-    setUser(updatedDoctor);
-
-
-    await AsyncStorage.setItem(
-      'rxvault_doctor',
-      JSON.stringify(
-        updatedDoctor
-      )
+    startAction(
+      'Updating profile...',
+      'Saving your professional information.'
     );
 
 
-    await AsyncStorage.setItem(
-      'rxvault_user',
-      JSON.stringify(
-        updatedDoctor
-      )
-    );
+    try {
+
+      setDoctor(updatedDoctor);
+      setUser(updatedDoctor);
+
+
+      await AsyncStorage.setItem(
+        'rxvault_doctor',
+        JSON.stringify(
+          updatedDoctor
+        )
+      );
+
+
+      await AsyncStorage.setItem(
+        'rxvault_user',
+        JSON.stringify(
+          updatedDoctor
+        )
+      );
+
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(resolve, 350)
+      );
+
+
+      stopAction();
+
+    } catch (error) {
+
+      stopAction();
+
+      throw error;
+
+    }
 
   };
 
@@ -277,21 +484,50 @@ export function AuthProvider({
 
   const logout = async () => {
 
-    await AsyncStorage.multiRemove([
-      'rxvault_token',
-      'rxvault_doctor',
-      'rxvault_user',
-      'rxvault_role',
-    ]);
+    startAction(
+      'Signing you out...',
+      'Clearing your secure Veda session.'
+    );
 
 
-    setToken(null);
-    setDoctor(null);
-    setUser(null);
-    setRole(null);
+    try {
+
+      await AsyncStorage.multiRemove([
+        'rxvault_token',
+        'rxvault_doctor',
+        'rxvault_user',
+        'rxvault_role',
+      ]);
+
+
+      setToken(null);
+      setDoctor(null);
+      setUser(null);
+      setRole(null);
+
+
+      await new Promise(
+        (resolve) =>
+          setTimeout(resolve, 350)
+      );
+
+
+      stopAction();
+
+    } catch (error) {
+
+      stopAction();
+
+      throw error;
+
+    }
 
   };
 
+
+  // =================================================
+  // PROVIDER
+  // =================================================
 
   return (
     <C.Provider
@@ -300,7 +536,19 @@ export function AuthProvider({
         doctor,
         user,
         role,
+
         loading,
+
+        /*
+         * Global action state
+         */
+        actionLoading,
+        actionMessage,
+        actionSubMessage,
+
+        startAction,
+        stopAction,
+
         login,
         register,
         updateDoctor,
@@ -310,4 +558,5 @@ export function AuthProvider({
       {children}
     </C.Provider>
   );
+
 }

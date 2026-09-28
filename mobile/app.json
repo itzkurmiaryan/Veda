@@ -14,6 +14,7 @@
 
     "android": {
       "package": "com.veda.app",
+
       "adaptiveIcon": {
         "foregroundImage": "./assets/veda.png",
         "backgroundColor": "#0F172A"

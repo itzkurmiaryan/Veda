@@ -1,7 +1,12 @@
 const router = require('express').Router();
 
+const bcrypt = require('bcryptjs');
+
 const Doctor = require('../models/Doctor');
 const DoctorRequest = require('../models/DoctorRequest');
+const AccessRequest = require('../models/AccessRequest');
+const Notification = require('../models/Notification');
+
 const Patient = require('../models/Patient');
 const Visit = require('../models/Visit');
 
@@ -12,13 +17,334 @@ router.use(auth, admin);
 
 /*
 |--------------------------------------------------------------------------
-| GET PENDING REQUESTS
+| HELPERS
+|--------------------------------------------------------------------------
+*/
+
+const addOneMonth = (date) => {
+  const d = new Date(date);
+
+  if (Number.isNaN(d.getTime())) {
+    return null;
+  }
+
+  const originalDay = d.getDate();
+
+  d.setDate(1);
+
+  d.setMonth(d.getMonth() + 1);
+
+  const lastDayOfMonth = new Date(
+    d.getFullYear(),
+    d.getMonth() + 1,
+    0
+  ).getDate();
+
+  d.setDate(
+    Math.min(
+      originalDay,
+      lastDayOfMonth
+    )
+  );
+
+  return d;
+};
+
+const daysBetween = (
+  start,
+  end = new Date()
+) => {
+  if (!start) {
+    return 0;
+  }
+
+  const startDate = new Date(start);
+  const endDate = new Date(end);
+
+  if (
+    Number.isNaN(startDate.getTime()) ||
+    Number.isNaN(endDate.getTime())
+  ) {
+    return 0;
+  }
+
+  const diff =
+    endDate.getTime() -
+    startDate.getTime();
+
+  return Math.max(
+    0,
+    Math.floor(
+      diff /
+        (
+          1000 *
+          60 *
+          60 *
+          24
+        )
+    )
+  );
+};
+
+const cleanDoctor = (
+  doctor
+) => {
+  const data =
+    doctor &&
+    typeof doctor.toObject === 'function'
+      ? doctor.toObject()
+      : {
+          ...(doctor || {}),
+        };
+
+  delete data.password;
+
+  const startDate =
+    data.accessStartDate ||
+    data.registrationDate ||
+    data.createdAt ||
+    null;
+
+  const nextPayment =
+    data.nextPaymentDate ||
+    (
+      startDate
+        ? addOneMonth(startDate)
+        : null
+    );
+
+  return {
+    ...data,
+
+    registrationDate:
+      data.registrationDate ||
+      data.createdAt ||
+      null,
+
+    accessStartDate:
+      startDate,
+
+    accessActive:
+      data.active !== false,
+
+    daysUsed:
+      daysBetween(startDate),
+
+    nextPaymentDate:
+      nextPayment,
+
+    paymentStatus:
+      data.paymentStatus ||
+      'pending',
+
+    paymentReminderRequested:
+      data.paymentReminderRequested === true,
+
+    paymentReminderAt:
+      data.paymentReminderAt ||
+      null,
+
+    accessRequestStatus:
+      data.accessRequestStatus ||
+      'none',
+
+    accessRequestedAt:
+      data.accessRequestedAt ||
+      null,
+
+    accessRequestReviewedAt:
+      data.accessRequestReviewedAt ||
+      null,
+  };
+};
+
+/*
+|--------------------------------------------------------------------------
+| INITIALIZE OLD DOCTORS
+|--------------------------------------------------------------------------
+*/
+
+const ensureBillingFields = async (
+  doctor
+) => {
+  let changed = false;
+
+  const startDate =
+    doctor.accessStartDate ||
+    doctor.registrationDate ||
+    doctor.createdAt ||
+    new Date();
+
+  if (!doctor.registrationDate) {
+    doctor.registrationDate =
+      doctor.createdAt ||
+      new Date();
+
+    changed = true;
+  }
+
+  if (!doctor.accessStartDate) {
+    doctor.accessStartDate =
+      startDate;
+
+    changed = true;
+  }
+
+  if (!doctor.paymentStatus) {
+    doctor.paymentStatus =
+      'pending';
+
+    changed = true;
+  }
+
+  if (!doctor.nextPaymentDate) {
+    doctor.nextPaymentDate =
+      addOneMonth(
+        doctor.accessStartDate
+      );
+
+    changed = true;
+  }
+
+  if (!doctor.accessRequestStatus) {
+    doctor.accessRequestStatus =
+      'none';
+
+    changed = true;
+  }
+
+  if (
+    doctor.paymentReminderRequested ===
+    undefined
+  ) {
+    doctor.paymentReminderRequested =
+      false;
+
+    changed = true;
+  }
+
+  if (
+    doctor.paymentReminderAt ===
+    undefined
+  ) {
+    doctor.paymentReminderAt =
+      null;
+
+    changed = true;
+  }
+
+  if (
+    doctor.accessRequestedAt ===
+    undefined
+  ) {
+    doctor.accessRequestedAt =
+      null;
+
+    changed = true;
+  }
+
+  if (
+    doctor.accessRequestReviewedAt ===
+    undefined
+  ) {
+    doctor.accessRequestReviewedAt =
+      null;
+
+    changed = true;
+  }
+
+  if (changed) {
+    await doctor.save();
+  }
+
+  return doctor;
+};
+
+/*
+|--------------------------------------------------------------------------
+| MONTHLY PAYMENT NOTIFICATION
+|--------------------------------------------------------------------------
+*/
+
+const ensurePaymentNotification =
+  async (
+    doctor
+  ) => {
+    if (
+      !doctor.nextPaymentDate ||
+      doctor.paymentStatus ===
+        'paid'
+    ) {
+      return;
+    }
+
+    const now =
+      new Date();
+
+    const nextPayment =
+      new Date(
+        doctor.nextPaymentDate
+      );
+
+    if (
+      Number.isNaN(
+        nextPayment.getTime()
+      )
+    ) {
+      return;
+    }
+
+    if (
+      now <
+      nextPayment
+    ) {
+      return;
+    }
+
+    const cycleKey =
+      `${doctor._id.toString()}-${nextPayment.getFullYear()}-${nextPayment.getMonth() + 1}`;
+
+    try {
+      await Notification.create({
+        type:
+          'payment_due',
+
+        doctorId:
+          doctor._id,
+
+        title:
+          'Monthly Payment Due',
+
+        message:
+          `${doctor.name}'s Veda access period has completed. Payment has not been recorded. Please verify payment and decide whether to remove access.`,
+
+        cycleKey,
+      });
+    } catch (error) {
+      if (
+        error.code !== 11000
+      ) {
+        console.error(
+          'Payment notification error:',
+          error
+        );
+      }
+    }
+  };
+
+/*
+|--------------------------------------------------------------------------
+| GET PENDING REGISTRATION REQUESTS
 |--------------------------------------------------------------------------
 */
 
 router.get(
   '/requests',
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const requests =
         await DoctorRequest.find({
@@ -47,18 +373,89 @@ router.get(
 
 router.get(
   '/doctors',
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const doctors =
         await Doctor.find()
-          .select('-password')
           .sort({
             createdAt: -1,
           });
 
+      const result = [];
+
+      for (
+        const doctor of doctors
+      ) {
+        await ensureBillingFields(
+          doctor
+        );
+
+        await ensurePaymentNotification(
+          doctor
+        );
+
+        result.push(
+          cleanDoctor(
+            doctor
+          )
+        );
+      }
+
       res.json({
         success: true,
-        data: doctors,
+        data: result,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| GET SINGLE DOCTOR
+|--------------------------------------------------------------------------
+*/
+
+router.get(
+  '/doctors/:id',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const doctor =
+        await Doctor.findById(
+          req.params.id
+        );
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Doctor not found',
+        });
+      }
+
+      await ensureBillingFields(
+        doctor
+      );
+
+      await ensurePaymentNotification(
+        doctor
+      );
+
+      res.json({
+        success: true,
+        data:
+          cleanDoctor(
+            doctor
+          ),
       });
     } catch (error) {
       next(error);
@@ -74,7 +471,11 @@ router.get(
 
 router.put(
   '/doctors/:id',
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const data = {};
 
@@ -90,18 +491,21 @@ router.put(
         'clinicLogo',
         'clinicBanner',
         'signature',
-      ].forEach((key) => {
-        if (
-          req.body[key] !== undefined
-        ) {
-          data[key] =
-            req.body[key];
+      ].forEach(
+        (key) => {
+          if (
+            req.body[key] !==
+            undefined
+          ) {
+            data[key] =
+              req.body[key];
+          }
         }
-      });
+      );
 
       if (req.body.password) {
         data.password =
-          await require('bcryptjs').hash(
+          await bcrypt.hash(
             req.body.password,
             12
           );
@@ -137,13 +541,17 @@ router.put(
 
 /*
 |--------------------------------------------------------------------------
-| APPROVE DOCTOR REQUEST
+| APPROVE NEW DOCTOR REGISTRATION
 |--------------------------------------------------------------------------
 */
 
 router.post(
   '/requests/:id/approve',
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const request =
         await DoctorRequest.findOne({
@@ -159,41 +567,104 @@ router.post(
         });
       }
 
+      const existingDoctor =
+        await Doctor.findOne({
+          email:
+            request.email.toLowerCase(),
+        });
+
+      if (existingDoctor) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'A doctor with this email already exists.',
+        });
+      }
+
+      const now =
+        new Date();
+
       const doctor =
         await Doctor.create({
-          name: request.name,
-          email: request.email,
-          phone: request.phone,
-          password: request.password,
+          name:
+            request.name,
+
+          email:
+            request.email,
+
+          phone:
+            request.phone,
+
+          password:
+            request.password,
+
           qualification:
             request.qualification,
+
           specialization:
             request.specialization,
+
           registrationNumber:
             request.registrationNumber,
+
           clinicName:
             request.clinicName,
+
           clinicAddress:
             request.clinicAddress,
+
           clinicLogo:
             request.clinicLogo,
+
           clinicBanner:
             request.clinicBanner,
-          active: true,
+
+          active:
+            true,
+
+          registrationDate:
+            request.createdAt ||
+            now,
+
+          accessStartDate:
+            now,
+
+          paymentStatus:
+            'pending',
+
+          nextPaymentDate:
+            addOneMonth(now),
+
+          paymentReminderRequested:
+            false,
+
+          paymentReminderAt:
+            null,
+
+          accessRequestStatus:
+            'none',
+
+          accessRequestedAt:
+            null,
+
+          accessRequestReviewedAt:
+            null,
         });
 
       request.status =
         'approved';
 
       request.reviewedAt =
-        new Date();
+        now;
 
       await request.save();
 
       res.json({
         success: true,
         doctor:
-          doctor.toObject(),
+          cleanDoctor(
+            doctor
+          ),
       });
     } catch (error) {
       next(error);
@@ -203,13 +674,17 @@ router.post(
 
 /*
 |--------------------------------------------------------------------------
-| REJECT REQUEST
+| REJECT REGISTRATION REQUEST
 |--------------------------------------------------------------------------
 */
 
 router.post(
   '/requests/:id/reject',
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const item =
         await DoctorRequest.findOneAndUpdate(
@@ -219,7 +694,8 @@ router.post(
           },
           {
             status: 'rejected',
-            reviewedAt: new Date(),
+            reviewedAt:
+              new Date(),
           },
           {
             new: true,
@@ -246,25 +722,22 @@ router.post(
 
 /*
 |--------------------------------------------------------------------------
-| ENABLE / DISABLE DOCTOR
+| ASK DOCTOR FOR PAYMENT
 |--------------------------------------------------------------------------
 */
 
-router.patch(
-  '/doctors/:id/access',
-  async (req, res, next) => {
+router.post(
+  '/doctors/:id/payment-request',
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       const doctor =
-        await Doctor.findByIdAndUpdate(
-          req.params.id,
-          {
-            active:
-              req.body.active !== false,
-          },
-          {
-            new: true,
-          }
-        ).select('-password');
+        await Doctor.findById(
+          req.params.id
+        );
 
       if (!doctor) {
         return res.status(404).json({
@@ -274,9 +747,794 @@ router.patch(
         });
       }
 
+      if (
+        doctor.paymentStatus ===
+        'paid'
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'This doctor has already paid for the current payment cycle.',
+          data:
+            cleanDoctor(
+              doctor
+            ),
+        });
+      }
+
+      if (
+        doctor.paymentReminderRequested ===
+        true
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Payment request has already been sent to this doctor.',
+          data:
+            cleanDoctor(
+              doctor
+            ),
+        });
+      }
+
+      doctor.paymentReminderRequested =
+        true;
+
+      doctor.paymentReminderAt =
+        new Date();
+
+      doctor.paymentStatus =
+        'pending';
+
+      await doctor.save();
+
+      /*
+      |--------------------------------------------------------------------------
+      | Notification
+      |--------------------------------------------------------------------------
+      */
+
+      try {
+        await Notification.create({
+          type:
+            'payment_request',
+
+          doctorId:
+            doctor._id,
+
+          title:
+            'Payment Requested',
+
+          message:
+            'Admin has requested your monthly Veda payment.',
+        });
+      } catch (
+        notificationError
+      ) {
+        console.error(
+          'Payment request notification error:',
+          notificationError
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Fetch latest doctor
+      |--------------------------------------------------------------------------
+      */
+
+      const updatedDoctor =
+        await Doctor.findById(
+          doctor._id
+        );
+
       res.json({
         success: true,
-        data: doctor,
+
+        message:
+          'Payment request sent to doctor.',
+
+        data:
+          cleanDoctor(
+            updatedDoctor
+          ),
+      });
+    } catch (error) {
+      console.error(
+        '❌ PAYMENT REQUEST ERROR:',
+        error
+      );
+
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| MARK PAYMENT AS PAID
+|--------------------------------------------------------------------------
+|
+| IMPORTANT:
+| This route only changes payment information.
+| It does NOT automatically restore doctor access.
+|
+|--------------------------------------------------------------------------
+*/
+
+router.patch(
+  '/doctors/:id/payment',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      console.log('');
+      console.log(
+        '======================================'
+      );
+      console.log(
+        '💰 ADMIN MARK PAYMENT PAID'
+      );
+      console.log(
+        'Doctor ID:',
+        req.params.id
+      );
+      console.log(
+        '======================================'
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | FIND DOCTOR
+      |--------------------------------------------------------------------------
+      */
+
+      const doctor =
+        await Doctor.findById(
+          req.params.id
+        );
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Doctor not found.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | PAYMENT DATE
+      |--------------------------------------------------------------------------
+      */
+
+      let paymentDate =
+        req.body?.paymentDate
+          ? new Date(
+              req.body.paymentDate
+            )
+          : new Date();
+
+      if (
+        Number.isNaN(
+          paymentDate.getTime()
+        )
+      ) {
+        paymentDate =
+          new Date();
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | CALCULATE NEXT PAYMENT DATE
+      |--------------------------------------------------------------------------
+      */
+
+      const nextPaymentDate =
+        addOneMonth(
+          paymentDate
+        );
+
+      /*
+      |--------------------------------------------------------------------------
+      | UPDATE PAYMENT FIELDS
+      |--------------------------------------------------------------------------
+      */
+
+      doctor.paymentStatus =
+        'paid';
+
+      doctor.lastPaymentDate =
+        paymentDate;
+
+      doctor.nextPaymentDate =
+        nextPaymentDate;
+
+      /*
+      |--------------------------------------------------------------------------
+      | CLEAR PAYMENT REQUEST
+      |--------------------------------------------------------------------------
+      */
+
+      doctor.paymentReminderRequested =
+        false;
+
+      doctor.paymentReminderAt =
+        null;
+
+      /*
+      |--------------------------------------------------------------------------
+      | SAVE TO MONGODB
+      |--------------------------------------------------------------------------
+      */
+
+      await doctor.save();
+
+      console.log(
+        '✅ PAYMENT SAVED TO MONGODB'
+      );
+
+      console.log(
+        'Doctor:',
+        doctor.name
+      );
+
+      console.log(
+        'Payment status:',
+        doctor.paymentStatus
+      );
+
+      console.log(
+        'Last payment:',
+        doctor.lastPaymentDate
+      );
+
+      console.log(
+        'Next payment:',
+        doctor.nextPaymentDate
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | CREATE PAYMENT VERIFIED NOTIFICATION
+      |--------------------------------------------------------------------------
+      |
+      | Notification failure must NOT undo
+      | the successful payment update.
+      |
+      */
+
+      try {
+        await Notification.create({
+          type:
+            'payment_verified',
+
+          doctorId:
+            doctor._id,
+
+          title:
+            'Payment Verified',
+
+          message:
+            'Your monthly Veda payment has been verified by admin.',
+        });
+
+        console.log(
+          '✅ PAYMENT NOTIFICATION CREATED'
+        );
+      } catch (
+        notificationError
+      ) {
+        console.error(
+          '⚠️ PAYMENT NOTIFICATION FAILED:',
+          notificationError.message
+        );
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | FETCH THE LATEST DOCUMENT FROM MONGODB
+      |--------------------------------------------------------------------------
+      */
+
+      const updatedDoctor =
+        await Doctor.findById(
+          doctor._id
+        );
+
+      console.log(
+        'FINAL PAYMENT STATUS:',
+        updatedDoctor?.paymentStatus
+      );
+
+      console.log(
+        'FINAL PAYMENT REQUEST:',
+        updatedDoctor?.paymentReminderRequested
+      );
+
+      /*
+      |--------------------------------------------------------------------------
+      | RETURN UPDATED DOCTOR
+      |--------------------------------------------------------------------------
+      */
+
+      return res.json({
+        success: true,
+
+        message:
+          'Payment marked as paid successfully.',
+
+        data:
+          cleanDoctor(
+            updatedDoctor
+          ),
+      });
+
+    } catch (error) {
+      console.error(
+        '❌ MARK PAYMENT ERROR:',
+        error
+      );
+
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| REMOVE / RESTORE ACCESS
+|--------------------------------------------------------------------------
+*/
+
+router.patch(
+  '/doctors/:id/access',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const doctor =
+        await Doctor.findById(
+          req.params.id
+        );
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Doctor not found',
+        });
+      }
+
+      const shouldBeActive =
+        req.body.active !== false;
+
+      doctor.active =
+        shouldBeActive;
+
+      if (shouldBeActive) {
+        doctor.accessRemovedAt =
+          null;
+
+        doctor.accessRemovalReason =
+          '';
+
+        if (
+          doctor.accessRequestStatus ===
+          'pending'
+        ) {
+          doctor.accessRequestStatus =
+            'approved';
+
+          doctor.accessRequestReviewedAt =
+            new Date();
+        }
+
+        await AccessRequest.updateMany(
+          {
+            doctorId:
+              doctor._id,
+
+            status:
+              'pending',
+          },
+          {
+            status:
+              'approved',
+
+            reviewedAt:
+              new Date(),
+          }
+        );
+
+        try {
+          await Notification.create({
+            type:
+              'access_approved',
+
+            doctorId:
+              doctor._id,
+
+            title:
+              'Access Restored',
+
+            message:
+              'Your Veda access has been restored by admin.',
+          });
+        } catch (notificationError) {
+          console.error(
+            'Access notification error:',
+            notificationError
+          );
+        }
+      } else {
+        doctor.accessRemovedAt =
+          new Date();
+
+        doctor.accessRemovalReason =
+          req.body.reason ||
+          'Access removed by admin';
+
+        doctor.accessRequestStatus =
+          'none';
+
+        doctor.accessRequestReviewedAt =
+          null;
+      }
+
+      await doctor.save();
+
+      res.json({
+        success: true,
+
+        message:
+          shouldBeActive
+            ? 'Doctor access restored successfully.'
+            : 'Doctor access removed successfully. Account and patient data were preserved.',
+
+        data:
+          cleanDoctor(
+            doctor
+          ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| GET ACCESS REQUESTS
+|--------------------------------------------------------------------------
+*/
+
+router.get(
+  '/access-requests',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const requests =
+        await AccessRequest.find({
+          status: 'pending',
+        })
+          .populate(
+            'doctorId',
+            '-password'
+          )
+          .sort({
+            createdAt: -1,
+          });
+
+      res.json({
+        success: true,
+        data: requests,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| APPROVE ACCESS REQUEST
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  '/access-requests/:id/approve',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const request =
+        await AccessRequest.findOne({
+          _id: req.params.id,
+          status: 'pending',
+        });
+
+      if (!request) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Access request not found',
+        });
+      }
+
+      const doctor =
+        await Doctor.findById(
+          request.doctorId
+        );
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Doctor not found',
+        });
+      }
+
+      const now =
+        new Date();
+
+      doctor.active =
+        true;
+
+      doctor.accessRemovedAt =
+        null;
+
+      doctor.accessRemovalReason =
+        '';
+
+      doctor.accessRequestStatus =
+        'approved';
+
+      doctor.accessRequestReviewedAt =
+        now;
+
+      await doctor.save();
+
+      request.status =
+        'approved';
+
+      request.reviewedAt =
+        now;
+
+      await request.save();
+
+      try {
+        await Notification.create({
+          type:
+            'access_approved',
+
+          doctorId:
+            doctor._id,
+
+          title:
+            'Access Approved',
+
+          message:
+            'Doctor access has been restored.',
+        });
+      } catch (notificationError) {
+        console.error(
+          'Access notification error:',
+          notificationError
+        );
+      }
+
+      res.json({
+        success: true,
+
+        message:
+          'Doctor access approved.',
+
+        data:
+          cleanDoctor(
+            doctor
+          ),
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| REJECT ACCESS REQUEST
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  '/access-requests/:id/reject',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const request =
+        await AccessRequest.findOne({
+          _id: req.params.id,
+          status: 'pending',
+        });
+
+      if (!request) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Access request not found',
+        });
+      }
+
+      const doctor =
+        await Doctor.findById(
+          request.doctorId
+        );
+
+      const now =
+        new Date();
+
+      request.status =
+        'rejected';
+
+      request.reviewedAt =
+        now;
+
+      await request.save();
+
+      if (doctor) {
+        doctor.accessRequestStatus =
+          'rejected';
+
+        doctor.accessRequestReviewedAt =
+          now;
+
+        await doctor.save();
+
+        try {
+          await Notification.create({
+            type:
+              'access_rejected',
+
+            doctorId:
+              doctor._id,
+
+            title:
+              'Access Request Rejected',
+
+            message:
+              'Your Veda access request was rejected by admin.',
+          });
+        } catch (notificationError) {
+          console.error(
+            'Access rejection notification error:',
+            notificationError
+          );
+        }
+      }
+
+      res.json({
+        success: true,
+
+        message:
+          'Access request rejected.',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| ADMIN NOTIFICATIONS
+|--------------------------------------------------------------------------
+*/
+
+router.get(
+  '/notifications',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const doctors =
+        await Doctor.find();
+
+      for (
+        const doctor of doctors
+      ) {
+        await ensureBillingFields(
+          doctor
+        );
+
+        await ensurePaymentNotification(
+          doctor
+        );
+      }
+
+      const notifications =
+        await Notification.find()
+          .populate(
+            'doctorId',
+            'name email'
+          )
+          .sort({
+            createdAt: -1,
+          })
+          .limit(100);
+
+      const unread =
+        notifications.filter(
+          (item) =>
+            !item.readAt
+        ).length;
+
+      res.json({
+        success: true,
+
+        data:
+          notifications,
+
+        unread,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| MARK NOTIFICATION READ
+|--------------------------------------------------------------------------
+*/
+
+router.patch(
+  '/notifications/:id/read',
+  async (
+    req,
+    res,
+    next
+  ) => {
+    try {
+      const notification =
+        await Notification.findByIdAndUpdate(
+          req.params.id,
+          {
+            readAt:
+              new Date(),
+          },
+          {
+            new: true,
+          }
+        );
+
+      if (!notification) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Notification not found',
+        });
+      }
+
+      res.json({
+        success: true,
+        data:
+          notification,
       });
     } catch (error) {
       next(error);
@@ -292,7 +1550,11 @@ router.patch(
 
 router.delete(
   '/doctors/:id',
-  async (req, res, next) => {
+  async (
+    req,
+    res,
+    next
+  ) => {
     try {
       console.log('');
       console.log(
@@ -322,36 +1584,31 @@ router.delete(
         });
       }
 
-      /*
-      |--------------------------------------------------------------------------
-      | Delete all prescriptions
-      |--------------------------------------------------------------------------
-      */
-
       const visits =
         await Visit.deleteMany({
-          doctorId: doctor._id,
+          doctorId:
+            doctor._id,
         });
-
-      /*
-      |--------------------------------------------------------------------------
-      | Delete all patients
-      |--------------------------------------------------------------------------
-      */
 
       const patients =
         await Patient.deleteMany({
-          doctorId: doctor._id,
+          doctorId:
+            doctor._id,
         });
 
-      /*
-      |--------------------------------------------------------------------------
-      | Delete doctor
-      |--------------------------------------------------------------------------
-      */
+      await AccessRequest.deleteMany({
+        doctorId:
+          doctor._id,
+      });
+
+      await Notification.deleteMany({
+        doctorId:
+          doctor._id,
+      });
 
       await Doctor.deleteOne({
-        _id: doctor._id,
+        _id:
+          doctor._id,
       });
 
       console.log(
@@ -391,4 +1648,11 @@ router.delete(
   }
 );
 
-module.exports = router;
+/*
+|--------------------------------------------------------------------------
+| EXPORT
+|--------------------------------------------------------------------------
+*/
+
+module.exports =
+  router;

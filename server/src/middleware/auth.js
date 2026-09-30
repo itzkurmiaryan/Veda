@@ -1,47 +1,82 @@
 const jwt = require('jsonwebtoken');
+
 const Doctor = require('../models/Doctor');
 const Admin = require('../models/Admin');
 
-module.exports = async (req, res, next) => {
+module.exports = async (
+  req,
+  res,
+  next
+) => {
   try {
-    const header = req.headers.authorization || '';
+    const header =
+      req.headers.authorization || '';
 
-    if (!header.startsWith('Bearer ')) {
+    if (
+      !header.startsWith('Bearer ')
+    ) {
       return res.status(401).json({
         success: false,
-        message: 'Authentication required',
+        message:
+          'Authentication required',
       });
     }
 
-    const token = header.substring(7).trim();
+    const token =
+      header.substring(7).trim();
 
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Authentication token missing',
+        message:
+          'Authentication token missing',
       });
     }
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
+    const payload =
+      jwt.verify(
+        token,
+        process.env.JWT_SECRET
+      );
 
-    const isAdmin = payload.type === 'admin';
+    const isAdmin =
+      payload.type === 'admin';
 
-    const Model = isAdmin ? Admin : Doctor;
+    const Model = isAdmin
+      ? Admin
+      : Doctor;
 
-    const account = await Model.findById(payload.id).select('-password');
+    const account =
+      await Model.findById(
+        payload.id
+      ).select('-password');
 
     if (!account) {
       return res.status(401).json({
         success: false,
-        message: 'Account not found',
+        message:
+          'Account not found',
       });
     }
 
-    // Doctor can be disabled by admin
-    if (!isAdmin && account.active === false) {
+    /*
+    |--------------------------------------------------------------------------
+    | DOCTOR ACCESS CHECK
+    |--------------------------------------------------------------------------
+    */
+
+    if (
+      !isAdmin &&
+      account.active === false
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'Doctor account has been disabled by admin',
+        code: 'ACCESS_DISABLED',
+        message:
+          'Doctor access is currently inactive',
+        accessRequestStatus:
+          account.accessRequestStatus ||
+          'none',
       });
     }
 
@@ -57,11 +92,15 @@ module.exports = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error('AUTH ERROR:', error.message);
+    console.error(
+      'AUTH ERROR:',
+      error.message
+    );
 
     return res.status(401).json({
       success: false,
-      message: 'Invalid or expired token',
+      message:
+        'Invalid or expired token',
     });
   }
 };

@@ -1,0 +1,18 @@
+[1mdiff --cc server/src/routes/admin.js[m
+[1mindex 143c1de,716f417..0000000[m
+[1m--- a/server/src/routes/admin.js[m
+[1m+++ b/server/src/routes/admin.js[m
+[36m@@@ -1231,8 -1231,8 +1231,13 @@@[m [mrouter.patch[m
+              'Payment Verified',[m
+  [m
+            message: paymentNote[m
+[32m++<<<<<<< ours[m
+[32m +            ? `Your payment of ???${amount} for ${monthsPaid} month(s) has been verified. Admin note: ${paymentNote}`[m
+[32m +            : `Your payment of ???${amount} for ${monthsPaid} month(s) has been verified.`,[m
+[32m++=======[m
+[32m+             ? `Your payment of ₹${amount} for ${monthsPaid} month(s) has been verified. Admin note: ${paymentNote}`[m
+[32m+             : `Your payment of ₹${amount} for ${monthsPaid} month(s) has been verified.`,[m
+[32m++>>>>>>> theirs[m
+          });[m
+  [m
+          console.log([m

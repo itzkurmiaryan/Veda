@@ -7,6 +7,7 @@ const NotificationSchema = new mongoose.Schema(
       enum: [
         'payment_due',
         'payment_request',
+        'payment_verified',
         'access_request',
         'access_approved',
         'access_rejected',
@@ -37,6 +38,11 @@ const NotificationSchema = new mongoose.Schema(
     },
 
     readAt: {
+      type: Date,
+      default: null,
+    },
+
+    dismissedAt: {
       type: Date,
       default: null,
     },

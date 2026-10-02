@@ -22,6 +22,25 @@ const AccessRequestSchema = new mongoose.Schema(
       trim: true,
     },
 
+    paymentProof: {
+      data: {
+        type: String,
+        default: null,
+      },
+      contentType: {
+        type: String,
+        default: null,
+      },
+      fileName: {
+        type: String,
+        default: null,
+      },
+      uploadedAt: {
+        type: Date,
+        default: null,
+      },
+    },
+
     requestedAt: {
       type: Date,
       default: Date.now,

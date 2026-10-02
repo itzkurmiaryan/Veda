@@ -4,6 +4,8 @@ const Patient = require('../models/Patient');
 const Visit = require('../models/Visit');
 
 const auth = require('../middleware/auth');
+const doctorWriteAccess =
+  require('../middleware/doctorWriteAccess');
 
 router.use(auth);
 
@@ -42,7 +44,7 @@ const generatePatientId = () => {
 |--------------------------------------------------------------------------
 */
 
-router.post('/', async (req, res, next) => {
+router.post('/', doctorWriteAccess, async (req, res, next) => {
   try {
     const {
       name,
@@ -245,7 +247,7 @@ router.get('/:id', async (req, res, next) => {
 |--------------------------------------------------------------------------
 */
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', doctorWriteAccess, async (req, res, next) => {
   try {
     console.log('');
     console.log(

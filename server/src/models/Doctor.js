@@ -126,7 +126,64 @@ const DoctorSchema = new mongoose.Schema(
     nextPaymentDate: {
       type: Date,
       default: null,
+      index: true,
     },
+
+    paymentHistory: [
+      {
+        amount: {
+          type: Number,
+          required: true,
+          min: 0.01,
+        },
+        transactionId: {
+          type: String,
+          trim: true,
+          maxlength: 120,
+          default: '',
+        },
+        monthsPaid: {
+          type: Number,
+          required: true,
+          default: 1,
+          min: 1,
+          max: 24,
+        },
+        note: {
+          type: String,
+          trim: true,
+          maxlength: 500,
+          default: '',
+        },
+        paidAt: {
+          type: Date,
+          required: true,
+        },
+        nextPaymentDate: {
+          type: Date,
+          required: true,
+        },
+        recordedBy: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: 'Admin',
+          default: null,
+        },
+        paymentProof: {
+          data: {
+            type: String,
+            default: null,
+          },
+          contentType: {
+            type: String,
+            default: null,
+          },
+          fileName: {
+            type: String,
+            default: null,
+          },
+        },
+      },
+    ],
 
     paymentReminderRequested: {
       type: Boolean,

@@ -7,6 +7,9 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const Admin = require('./models/Admin');
+const Doctor = require('./models/Doctor');
+const ensurePaymentNotification =
+  require('./services/paymentCycle');
 
 const app = express();
 
@@ -103,6 +106,28 @@ app.use(
 const port =
   process.env.PORT || 5000;
 
+const syncDuePayments = async () => {
+  try {
+    const doctors =
+      await Doctor.find({
+        nextPaymentDate: {
+          $lte: new Date(),
+        },
+      });
+
+    await Promise.all(
+      doctors.map((doctor) =>
+        ensurePaymentNotification(doctor)
+      )
+    );
+  } catch (error) {
+    console.error(
+      'Monthly payment sync failed:',
+      error
+    );
+  }
+};
+
 console.log(
   '--------------------------------'
 );
@@ -138,6 +163,14 @@ mongoose
     console.log(
       '✅ MongoDB connected successfully'
     );
+
+    syncDuePayments();
+    const paymentSyncInterval =
+      setInterval(
+        syncDuePayments,
+        60 * 60 * 1000
+      );
+    paymentSyncInterval.unref();
 
     try {
       const email =

@@ -59,27 +59,6 @@ module.exports = async (
       });
     }
 
-    /*
-    |--------------------------------------------------------------------------
-    | DOCTOR ACCESS CHECK
-    |--------------------------------------------------------------------------
-    */
-
-    if (
-      !isAdmin &&
-      account.active === false
-    ) {
-      return res.status(403).json({
-        success: false,
-        code: 'ACCESS_DISABLED',
-        message:
-          'Doctor access is currently inactive',
-        accessRequestStatus:
-          account.accessRequestStatus ||
-          'none',
-      });
-    }
-
     req.user = account;
 
     if (isAdmin) {

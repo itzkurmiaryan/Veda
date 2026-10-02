@@ -4,6 +4,8 @@ const Visit = require('../models/Visit');
 const Patient = require('../models/Patient');
 
 const auth = require('../middleware/auth');
+const doctorWriteAccess =
+  require('../middleware/doctorWriteAccess');
 
 router.use(auth);
 
@@ -30,7 +32,7 @@ router.use((req, res, next) => {
 |--------------------------------------------------------------------------
 */
 
-router.post('/', async (req, res, next) => {
+router.post('/', doctorWriteAccess, async (req, res, next) => {
   try {
     const {
       patientId,
@@ -139,7 +141,7 @@ router.get('/:id', async (req, res, next) => {
 |--------------------------------------------------------------------------
 */
 
-router.put('/:id', async (req, res, next) => {
+router.put('/:id', doctorWriteAccess, async (req, res, next) => {
   try {
     const allowed = [
       'visitDate',
@@ -198,7 +200,7 @@ router.put('/:id', async (req, res, next) => {
 |--------------------------------------------------------------------------
 */
 
-router.delete('/:id', async (req, res, next) => {
+router.delete('/:id', doctorWriteAccess, async (req, res, next) => {
   try {
     console.log('');
     console.log(

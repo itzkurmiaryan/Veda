@@ -18,6 +18,7 @@ import {
 import { api } from '../api/api';
 
 import { useAuth } from '../context/AuthContext';
+import AccessRequiredModal from '../components/AccessRequiredModal';
 
 export default function AddPatient({ navigation }) {
   const {
@@ -35,6 +36,8 @@ export default function AddPatient({ navigation }) {
   });
 
   const [busy, setBusy] = useState(false);
+  const [accessPromptVisible, setAccessPromptVisible] =
+    useState(false);
 
   const isBusy = busy || actionLoading;
 
@@ -91,6 +94,14 @@ export default function AddPatient({ navigation }) {
         }
       );
     } catch (e) {
+      if (
+        e.response?.data?.code ===
+        'ACCESS_DISABLED'
+      ) {
+        setAccessPromptVisible(true);
+        return;
+      }
+
       Alert.alert(
         'Unable to create patient',
         e.response?.data?.message ||
@@ -271,6 +282,10 @@ export default function AddPatient({ navigation }) {
           </View>
         </View>
       </FadeIn>
+      <AccessRequiredModal
+        visible={accessPromptVisible}
+        onClose={() => setAccessPromptVisible(false)}
+      />
     </Screen>
   );
 }

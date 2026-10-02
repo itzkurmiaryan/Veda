@@ -311,6 +311,30 @@ export function AuthProvider({
 
 
   // =================================================
+  // REQUEST ACCESS AFTER ACCESS WAS REMOVED
+  // =================================================
+
+  const requestAccess = async (
+    email,
+    password,
+    options = {}
+  ) => {
+    const response =
+      await api.post(
+        '/auth/request-access',
+        {
+          email,
+          password,
+          paymentProof:
+            options.paymentProof,
+        }
+      );
+
+    return response.data;
+  };
+
+
+  // =================================================
   // REGISTER
   // =================================================
 
@@ -550,6 +574,7 @@ export function AuthProvider({
         stopAction,
 
         login,
+        requestAccess,
         register,
         updateDoctor,
         logout,

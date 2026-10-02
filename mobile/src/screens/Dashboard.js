@@ -1,18 +1,25 @@
 import React, {
+  useCallback,
   useEffect,
   useRef,
   useState,
 } from 'react';
 
 import {
+  Alert,
   Animated,
   Easing,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
   View,
   useWindowDimensions,
 } from 'react-native';
+
+import {
+  useFocusEffect,
+} from '@react-navigation/native';
 
 import {
   useAuth,
@@ -38,123 +45,171 @@ import Analytics from '../components/Analytics';
    DASHBOARD
 ===================================================== */
 
-export default function Dashboard({
-  navigation,
-}) {
+export default function Dashboard({ navigation }) {
+
   const {
     doctor,
     logout,
   } = useAuth();
 
-  const {
-    width,
-  } = useWindowDimensions();
+  const { width } = useWindowDimensions();
 
-  const isSmall =
-    width < 380;
+  const isSmall = width < 380;
+  const isTablet = width >= 620;
 
-  const isTablet =
-    width >= 620;
 
-  const [patients, setPatients] =
-    useState([]);
+  /* =====================================================
+     STATE
+  ===================================================== */
 
-  const [analytics, setAnalytics] =
-    useState(null);
+  const [patients, setPatients] = useState([]);
+  const [analytics, setAnalytics] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  const [loading, setLoading] =
-    useState(true);
+  const [notifications, setNotifications] = useState([]);
+
+  const [doctorData, setDoctorData] = useState(
+    doctor || null
+  );
+
+  const [requestLoading, setRequestLoading] =
+    useState(false);
+
+  const [requestSent, setRequestSent] =
+    useState(false);
+
+
+  /* =====================================================
+     KEEP LOCAL DOCTOR DATA IN SYNC
+  ===================================================== */
+
+  useEffect(() => {
+
+    if (doctor) {
+      setDoctorData(doctor);
+    }
+
+  }, [doctor]);
 
 
   /* =====================================================
      ANIMATIONS
   ===================================================== */
 
-  const fadeAnim =
-    useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(
+    new Animated.Value(0)
+  ).current;
 
-  const floatAnim =
-    useRef(new Animated.Value(0)).current;
+  const floatAnim = useRef(
+    new Animated.Value(0)
+  ).current;
 
-  const pulseAnim =
-    useRef(new Animated.Value(1)).current;
+  const pulseAnim = useRef(
+    new Animated.Value(1)
+  ).current;
 
-  const rotateAnim =
-    useRef(new Animated.Value(0)).current;
+  const rotateAnim = useRef(
+    new Animated.Value(0)
+  ).current;
 
+
+  /* =====================================================
+     INTRO ANIMATIONS
+  ===================================================== */
 
   useEffect(() => {
-    Animated.timing(fadeAnim, {
-      toValue: 1,
-      duration: 700,
-      easing: Easing.out(
-        Easing.cubic
-      ),
-      useNativeDriver: true,
-    }).start();
+
+    Animated.timing(
+      fadeAnim,
+      {
+        toValue: 1,
+        duration: 700,
+        easing: Easing.out(Easing.cubic),
+        useNativeDriver: true,
+      }
+    ).start();
+
 
     const floating = Animated.loop(
       Animated.sequence([
-        Animated.timing(floatAnim, {
-          toValue: 1,
-          duration: 2200,
-          easing: Easing.inOut(
-            Easing.ease
-          ),
-          useNativeDriver: true,
-        }),
 
-        Animated.timing(floatAnim, {
-          toValue: 0,
-          duration: 2200,
-          easing: Easing.inOut(
-            Easing.ease
-          ),
-          useNativeDriver: true,
-        }),
+        Animated.timing(
+          floatAnim,
+          {
+            toValue: 1,
+            duration: 2200,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }
+        ),
+
+        Animated.timing(
+          floatAnim,
+          {
+            toValue: 0,
+            duration: 2200,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }
+        ),
+
       ])
     );
+
 
     const pulse = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.06,
-          duration: 1700,
-          easing: Easing.inOut(
-            Easing.ease
-          ),
-          useNativeDriver: true,
-        }),
 
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1700,
-          easing: Easing.inOut(
-            Easing.ease
-          ),
-          useNativeDriver: true,
-        }),
+        Animated.timing(
+          pulseAnim,
+          {
+            toValue: 1.06,
+            duration: 1700,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }
+        ),
+
+        Animated.timing(
+          pulseAnim,
+          {
+            toValue: 1,
+            duration: 1700,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }
+        ),
+
       ])
     );
 
+
     const rotation = Animated.loop(
-      Animated.timing(rotateAnim, {
-        toValue: 1,
-        duration: 14000,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      })
+      Animated.timing(
+        rotateAnim,
+        {
+          toValue: 1,
+          duration: 14000,
+          easing: Easing.linear,
+          useNativeDriver: true,
+        }
+      )
     );
+
 
     floating.start();
     pulse.start();
     rotation.start();
 
+
     return () => {
+
       floating.stop();
       pulse.stop();
       rotation.stop();
+
     };
+
   }, [
     fadeAnim,
     floatAnim,
@@ -164,65 +219,622 @@ export default function Dashboard({
 
 
   /* =====================================================
-     LOAD
+     LOAD CURRENT DOCTOR
+===================================================== */
+
+  const loadDoctor = useCallback(
+    async () => {
+
+      try {
+
+        const response =
+          await api.get('/auth/me');
+
+        const nextDoctor =
+          response?.data?.doctor ||
+          response?.data?.data?.doctor ||
+          response?.data?.user ||
+          response?.data?.data ||
+          null;
+
+
+        if (nextDoctor) {
+
+          setDoctorData(nextDoctor);
+
+          /*
+            If backend says request is already pending,
+            keep local request state synced.
+          */
+          if (
+            String(
+              nextDoctor?.accessRequestStatus || ''
+            ).toLowerCase() === 'pending'
+          ) {
+            setRequestSent(true);
+          } else {
+            setRequestSent(false);
+          }
+
+        }
+
+      } catch (error) {
+
+        console.error(
+          'DOCTOR DETAILS LOAD ERROR:',
+          error?.response?.data ||
+          error?.message ||
+          error
+        );
+
+      }
+
+    },
+    []
+  );
+
+
+  /* =====================================================
+     DASHBOARD DATA
   ===================================================== */
 
-  const load = async () => {
-    try {
-      setLoading(true);
+  const loadDashboard = useCallback(
+    async () => {
 
-      const [
-        patientsResponse,
-        analyticsResponse,
-      ] = await Promise.all([
-        api.get('/patients'),
-        api.get(
-          '/analytics/doctor/me'
-        ),
-      ]);
+      try {
 
-      setPatients(
-        patientsResponse?.data?.data || []
-      );
+        const [
+          patientsResponse,
+          analyticsResponse,
+        ] = await Promise.all([
 
-      setAnalytics(
-        analyticsResponse?.data?.data || null
-      );
-    } catch (error) {
-      console.error(
-        'DASHBOARD LOAD ERROR:',
-        error
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+          api.get('/patients'),
 
+          api.get('/analytics/doctor/me'),
+
+        ]);
+
+
+        const nextPatients =
+          patientsResponse?.data?.data || [];
+
+
+        const nextAnalytics =
+          analyticsResponse?.data?.data || null;
+
+
+        setPatients(nextPatients);
+
+        setAnalytics(nextAnalytics);
+
+      } catch (error) {
+
+        console.error(
+          'DASHBOARD LOAD ERROR:',
+          error?.response?.data ||
+          error?.message ||
+          error
+        );
+
+      } finally {
+
+        setLoading(false);
+
+      }
+
+    },
+    []
+  );
+
+
+  /* =====================================================
+     NOTIFICATIONS
+  ===================================================== */
+
+  const loadNotifications = useCallback(
+    async () => {
+
+      try {
+
+        const response =
+          await api.get('/auth/notifications');
+
+
+        const nextNotifications =
+          Array.isArray(
+            response?.data?.data
+          )
+            ? response.data.data
+            : [];
+
+
+        setNotifications(
+          nextNotifications
+        );
+
+      } catch (error) {
+
+        console.error(
+          'DOCTOR NOTIFICATIONS ERROR:',
+          error?.response?.data ||
+          error?.message ||
+          error
+        );
+
+      }
+
+    },
+    []
+  );
+
+
+  /* =====================================================
+     INITIAL LOAD
+  ===================================================== */
 
   useEffect(() => {
-    load();
-  }, []);
+
+    loadDashboard();
+    loadDoctor();
+    loadNotifications();
+
+  }, [
+    loadDashboard,
+    loadDoctor,
+    loadNotifications,
+  ]);
+
+
+  /* =====================================================
+     FOCUS REFRESH
+  ===================================================== */
+
+  useFocusEffect(
+    useCallback(() => {
+
+      let mounted = true;
+
+
+      const refreshDashboard =
+        async () => {
+
+          try {
+
+            const [
+              patientsResponse,
+              analyticsResponse,
+              doctorResponse,
+              notificationsResponse,
+            ] = await Promise.all([
+
+              api.get('/patients'),
+
+              api.get('/analytics/doctor/me'),
+
+              api.get('/auth/me'),
+
+              api.get('/auth/notifications'),
+
+            ]);
+
+
+            if (!mounted) {
+              return;
+            }
+
+
+            setPatients(
+              patientsResponse?.data?.data || []
+            );
+
+
+            setAnalytics(
+              analyticsResponse?.data?.data || null
+            );
+
+
+            const nextDoctor =
+              doctorResponse?.data?.doctor ||
+              doctorResponse?.data?.data?.doctor ||
+              doctorResponse?.data?.user ||
+              doctorResponse?.data?.data ||
+              null;
+
+
+            if (nextDoctor) {
+
+              setDoctorData(
+                nextDoctor
+              );
+
+
+              const requestStatus =
+                String(
+                  nextDoctor?.accessRequestStatus ||
+                  ''
+                ).toLowerCase();
+
+
+              setRequestSent(
+                requestStatus === 'pending'
+              );
+
+            }
+
+
+            setNotifications(
+              Array.isArray(
+                notificationsResponse?.data?.data
+              )
+                ? notificationsResponse.data.data
+                : []
+            );
+
+
+          } catch (error) {
+
+            if (!mounted) {
+              return;
+            }
+
+
+            console.error(
+              'DASHBOARD REFRESH ERROR:',
+              error?.response?.data ||
+              error?.message ||
+              error
+            );
+
+          } finally {
+
+            if (mounted) {
+              setLoading(false);
+            }
+
+          }
+
+        };
+
+
+      refreshDashboard();
+
+
+      const notificationInterval =
+        setInterval(
+          loadNotifications,
+          30 * 1000
+        );
+
+
+      return () => {
+
+        mounted = false;
+
+        clearInterval(
+          notificationInterval
+        );
+
+      };
+
+    }, [
+      loadNotifications,
+    ])
+  );
+
+
+  /* =====================================================
+     ACCESS REQUEST
+  ===================================================== */
+
+  const submitAccessRequest =
+    useCallback(
+      async () => {
+
+        if (requestLoading) {
+          return;
+        }
+
+
+        const currentStatus =
+          String(
+            doctorData?.accessRequestStatus ||
+            ''
+          ).toLowerCase();
+
+
+        if (currentStatus === 'pending') {
+
+          setRequestSent(true);
+
+          Alert.alert(
+            'Request already sent',
+            'Your access request is already pending with the administrator.'
+          );
+
+          return;
+
+        }
+
+
+        setRequestLoading(true);
+
+
+        try {
+
+          const response =
+            await api.post(
+              '/auth/request-access-session',
+              {
+                message:
+                  'I want to request access to my Veda Doctor account.',
+              }
+            );
+
+
+          const responseData =
+            response?.data || {};
+
+
+          /*
+            Backend:
+            {
+              success,
+              alreadyPending,
+              message,
+              status: 'pending'
+            }
+          */
+
+          if (
+            responseData?.status === 'pending' ||
+            responseData?.alreadyPending
+          ) {
+
+            setRequestSent(true);
+
+
+            setDoctorData(
+              current => ({
+                ...(current || {}),
+                accessRequestStatus:
+                  'pending',
+              })
+            );
+
+
+            Alert.alert(
+              'Request sent',
+              responseData?.message ||
+              'Your access request has been sent to the administrator.'
+            );
+
+          } else {
+
+            Alert.alert(
+              'Request sent',
+              responseData?.message ||
+              'Your access request has been submitted.'
+            );
+
+          }
+
+
+          /*
+            Refresh doctor information immediately
+            so the UI reflects the backend state.
+          */
+
+          await loadDoctor();
+
+
+          /*
+            Refresh notifications because admin may
+            receive / trigger notification-related state.
+          */
+
+          await loadNotifications();
+
+
+        } catch (error) {
+
+          console.error(
+            'ACCESS REQUEST ERROR:',
+            error?.response?.data ||
+            error?.message ||
+            error
+          );
+
+
+          const message =
+            error?.response?.data?.message ||
+            'Unable to send your access request right now. Please try again.';
+
+
+          Alert.alert(
+            'Request failed',
+            message
+          );
+
+        } finally {
+
+          setRequestLoading(false);
+
+        }
+
+      },
+      [
+        requestLoading,
+        doctorData,
+        loadDoctor,
+        loadNotifications,
+      ]
+    );
 
 
   /* =====================================================
      DATA
   ===================================================== */
 
+  const currentDoctor =
+    doctorData || doctor || {};
+
+
   const firstName =
-    doctor?.name
+    currentDoctor?.name
       ?.trim()
       ?.split(' ')[0] ||
     'Doctor';
 
+
   const doctorName =
-    doctor?.name ||
+    currentDoctor?.name ||
     'Doctor';
+
 
   const totalPatients =
     patients.length;
 
+
   const recentPatients =
     patients.slice(0, 5);
+
+
+  /*
+    Access state
+  */
+
+  const isActive =
+    currentDoctor?.active !== false;
+
+
+  const accessRequestStatus =
+    String(
+      currentDoctor?.accessRequestStatus ||
+      ''
+    ).toLowerCase();
+
+
+  const isRequestPending =
+    requestSent ||
+    accessRequestStatus === 'pending';
+
+
+  /*
+    Access request should be visible when:
+
+    - doctor account is inactive
+    - request isn't already pending
+  */
+
+  const shouldShowAccessRequest =
+    !isActive &&
+    !isRequestPending;
+
+
+  /*
+    Payment status
+  */
+
+  const paymentStatus =
+    String(
+      currentDoctor?.paymentStatus ||
+      'pending'
+    ).toLowerCase();
+
+
+  const paymentReminderRequested =
+    Boolean(
+      currentDoctor?.paymentReminderRequested
+    );
+
+
+  const activeNotification =
+    notifications[0] || null;
+
+
+  /* =====================================================
+     NOTIFICATION ACTIONS
+  ===================================================== */
+
+  const dismissNotification =
+    async () => {
+
+      if (!activeNotification) {
+        return;
+      }
+
+
+      if (activeNotification._id) {
+
+        try {
+
+          await api.patch(
+            `/auth/notifications/${activeNotification._id}/read`
+          );
+
+        } catch (error) {
+
+          console.error(
+            'NOTIFICATION READ ERROR:',
+            error?.response?.data ||
+            error?.message ||
+            error
+          );
+
+        }
+
+      }
+
+
+      setNotifications(
+        current =>
+          current.slice(1)
+      );
+
+    };
+
+
+  const deleteActiveNotification =
+    async () => {
+
+      if (!activeNotification?._id) {
+        return;
+      }
+
+
+      try {
+
+        await api.delete(
+          `/auth/notifications/${activeNotification._id}`
+        );
+
+
+        setNotifications(
+          current =>
+            current.filter(
+              item =>
+                item._id !==
+                activeNotification._id
+            )
+        );
+
+      } catch (error) {
+
+        console.error(
+          'NOTIFICATION DELETE ERROR:',
+          error?.response?.data ||
+          error?.message ||
+          error
+        );
+
+      }
+
+    };
+
+
+  /* =====================================================
+     ANIMATION VALUES
+  ===================================================== */
 
   const floatY =
     floatAnim.interpolate({
@@ -230,15 +842,17 @@ export default function Dashboard({
       outputRange: [0, -7],
     });
 
+
   const rotation =
     rotateAnim.interpolate({
       inputRange: [0, 1],
-      outputRange: [
-        '0deg',
-        '360deg',
-      ],
+      outputRange: ['0deg', '360deg'],
     });
 
+
+  /* =====================================================
+     RENDER
+  ===================================================== */
 
   return (
     <Screen scroll>
@@ -263,27 +877,30 @@ export default function Dashboard({
 
             </View>
 
+
             <Text
               style={[
                 styles.greeting,
                 isSmall &&
-                  styles.greetingSmall,
+                styles.greetingSmall,
               ]}
             >
               Good morning,
             </Text>
 
+
             <Text
               style={[
                 styles.doctorName,
                 isSmall &&
-                  styles.doctorNameSmall,
+                styles.doctorNameSmall,
               ]}
               numberOfLines={1}
               adjustsFontSizeToFit
             >
               Dr. {firstName}
             </Text>
+
 
             <Text style={styles.dateText}>
               Your practice overview is ready
@@ -292,8 +909,6 @@ export default function Dashboard({
 
           </View>
 
-
-          {/* Doctor initial */}
 
           <Animated.View
             style={[
@@ -314,6 +929,7 @@ export default function Dashboard({
                 ?.toUpperCase() || 'D'}
             </Text>
 
+
             <View style={styles.profileOnline} />
 
           </Animated.View>
@@ -322,12 +938,13 @@ export default function Dashboard({
 
 
         {/* =================================================
-            PREMIUM CLINICAL CARD
+            VEDA HERO
         ================================================= */}
 
         <View style={styles.clinicCard}>
 
           <View style={styles.clinicGlow} />
+
 
           <Animated.View
             style={[
@@ -341,7 +958,9 @@ export default function Dashboard({
               },
             ]}
           >
+
             <View style={styles.ringDot} />
+
           </Animated.View>
 
 
@@ -359,13 +978,16 @@ export default function Dashboard({
 
             </View>
 
+
             <Text style={styles.clinicTitle}>
               Everything you need,
             </Text>
 
+
             <Text style={styles.clinicTitleAccent}>
               in one clinical space.
             </Text>
+
 
             <Text style={styles.clinicDescription}>
               Manage your patients, visits and
@@ -383,14 +1005,22 @@ export default function Dashboard({
               label="Patients"
             />
 
+
             <View style={styles.clinicDivider} />
 
+
             <ClinicalMiniStat
-              value="24/7"
+              value={
+                isActive
+                  ? '24/7'
+                  : 'OFF'
+              }
               label="Access"
             />
 
+
             <View style={styles.clinicDivider} />
+
 
             <ClinicalMiniStat
               value="✓"
@@ -400,6 +1030,56 @@ export default function Dashboard({
           </View>
 
         </View>
+
+
+        {/* =================================================
+            PAYMENT / ACCESS
+        ================================================= */}
+
+        <PaymentSummaryCard
+          doctor={currentDoctor}
+          onPress={() =>
+            navigation.navigate(
+              'PaymentDetails'
+            )
+          }
+        />
+
+
+        {/* =================================================
+            ACCESS REQUEST
+        ================================================= */}
+
+        {shouldShowAccessRequest ? (
+
+          <AccessRequestCard
+            loading={requestLoading}
+            onPress={submitAccessRequest}
+          />
+
+        ) : isRequestPending ? (
+
+          <AccessPendingCard />
+
+        ) : null}
+
+
+        {/* =================================================
+            PAYMENT REMINDER
+        ================================================= */}
+
+        {paymentReminderRequested &&
+        paymentStatus !== 'paid' ? (
+
+          <PaymentReminderCard
+            onPress={() =>
+              navigation.navigate(
+                'PaymentDetails'
+              )
+            }
+          />
+
+        ) : null}
 
 
         {/* =================================================
@@ -416,7 +1096,7 @@ export default function Dashboard({
           style={[
             styles.actionGrid,
             isTablet &&
-              styles.actionGridTablet,
+            styles.actionGridTablet,
           ]}
         >
 
@@ -431,6 +1111,7 @@ export default function Dashboard({
               )
             }
           />
+
 
           <DoctorAction
             icon="⌕"
@@ -457,6 +1138,7 @@ export default function Dashboard({
             title="Today's overview"
           />
 
+
           <View style={styles.liveStatus}>
 
             <View style={styles.liveDot} />
@@ -470,20 +1152,53 @@ export default function Dashboard({
         </View>
 
 
-        {loading ? (
-
-          <View style={styles.loadingContainer}>
-            <Loading
-              text="Loading practice data..."
-            />
-          </View>
-
-        ) : (
+        {analytics ? (
 
           <Analytics
             data={analytics}
             title="Practice pulse"
           />
+
+        ) : (
+
+          <View style={styles.loadingContainer}>
+
+            {loading ? (
+
+              <Loading
+                text="Loading practice data..."
+              />
+
+            ) : (
+
+              <Card>
+
+                <View style={styles.noAnalytics}>
+
+                  <Text
+                    style={
+                      styles.noAnalyticsTitle
+                    }
+                  >
+                    Practice analytics unavailable
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.noAnalyticsText
+                    }
+                  >
+                    We could not load your practice
+                    analytics right now.
+                  </Text>
+
+                </View>
+
+              </Card>
+
+            )}
+
+          </View>
 
         )}
 
@@ -499,7 +1214,9 @@ export default function Dashboard({
             title="Recent patients"
           />
 
+
           {patients.length > 0 && (
+
             <Pressable
               onPress={() =>
                 navigation.navigate(
@@ -509,13 +1226,16 @@ export default function Dashboard({
               style={({ pressed }) => [
                 styles.viewAll,
                 pressed &&
-                  styles.pressed,
+                styles.pressed,
               ]}
             >
+
               <Text style={styles.viewAllText}>
                 View all →
               </Text>
+
             </Pressable>
+
           )}
 
         </View>
@@ -537,10 +1257,11 @@ export default function Dashboard({
 
             recentPatients.map(
               (patient, index) => (
+
                 <PatientItem
                   key={
-                    patient._id ||
-                    patient.patientId ||
+                    patient?._id ||
+                    patient?.patientId ||
                     index
                   }
                   patient={patient}
@@ -552,12 +1273,12 @@ export default function Dashboard({
                     navigation.navigate(
                       'PatientDetail',
                       {
-                        id:
-                          patient._id,
+                        id: patient?._id,
                       }
                     )
                   }
                 />
+
               )
             )
 
@@ -567,16 +1288,19 @@ export default function Dashboard({
 
 
         {/* =================================================
-            PROFESSIONAL FOOT NOTE
+            PROFESSIONAL CARD
         ================================================= */}
 
         <View style={styles.proCard}>
 
           <View style={styles.proIcon}>
+
             <Text style={styles.proIconText}>
               ✓
             </Text>
+
           </View>
+
 
           <View style={styles.proContent}>
 
@@ -584,12 +1308,14 @@ export default function Dashboard({
               Professional workspace
             </Text>
 
+
             <Text style={styles.proText}>
               Your clinical records stay connected
               to your secure Veda account.
             </Text>
 
           </View>
+
 
           <Text style={styles.proArrow}>
             →
@@ -603,16 +1329,582 @@ export default function Dashboard({
         ================================================= */}
 
         <View style={styles.signOut}>
+
           <Button
             title="Sign out"
             secondary
             onPress={logout}
           />
+
         </View>
 
       </FadeIn>
 
+
+      {/* =================================================
+          NOTIFICATION MODAL
+      ================================================= */}
+
+      <Modal
+        visible={
+          Boolean(activeNotification)
+        }
+        transparent
+        animationType="fade"
+        onRequestClose={
+          dismissNotification
+        }
+      >
+
+        <View
+          style={
+            styles.notificationOverlay
+          }
+        >
+
+          <View
+            style={
+              styles.notificationModal
+            }
+          >
+
+            <View
+              style={
+                styles.notificationTopRow
+              }
+            >
+
+              <View
+                style={
+                  styles.notificationMark
+                }
+              >
+
+                <Text
+                  style={
+                    styles.notificationMarkText
+                  }
+                >
+                  {
+                    activeNotification?.type ===
+                    'payment_verified'
+                      ? '✓'
+                      : activeNotification?.type ===
+                        'access_approved'
+                        ? '✓'
+                        : '₹'
+                  }
+                </Text>
+
+              </View>
+
+
+              <Text
+                style={
+                  styles.notificationEyebrow
+                }
+              >
+                VEDA UPDATE
+              </Text>
+
+            </View>
+
+
+            <Text
+              style={
+                styles.notificationTitle
+              }
+            >
+              {
+                activeNotification?.title ||
+                'Notification'
+              }
+            </Text>
+
+
+            <Text
+              style={
+                styles.notificationMessage
+              }
+            >
+              {
+                activeNotification?.message ||
+                ''
+              }
+            </Text>
+
+
+            <Pressable
+              onPress={
+                dismissNotification
+              }
+              style={({ pressed }) => [
+                styles.notificationButton,
+                pressed &&
+                styles.notificationButtonPressed,
+              ]}
+            >
+
+              <Text
+                style={
+                  styles.notificationButtonText
+                }
+              >
+                Got it
+              </Text>
+
+
+              <Text
+                style={
+                  styles.notificationButtonArrow
+                }
+              >
+                →
+              </Text>
+
+            </Pressable>
+
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={
+                deleteActiveNotification
+              }
+              style={
+                styles.notificationDeleteButton
+              }
+            >
+
+              <Text
+                style={
+                  styles.notificationDeleteText
+                }
+              >
+                Delete notification
+              </Text>
+
+            </Pressable>
+
+          </View>
+
+        </View>
+
+      </Modal>
+
     </Screen>
+  );
+}
+
+
+/* =====================================================
+   PAYMENT SUMMARY CARD
+===================================================== */
+
+function PaymentSummaryCard({
+  doctor,
+  onPress,
+}) {
+
+  const paymentStatus =
+    String(
+      doctor?.paymentStatus ||
+      'pending'
+    ).toLowerCase();
+
+
+  const isPaid =
+    paymentStatus === 'paid';
+
+
+  const isActive =
+    doctor?.active !== false;
+
+
+  const nextPaymentDate =
+    formatDate(
+      doctor?.nextPaymentDate
+    );
+
+
+  let statusLabel =
+    'Payment pending';
+
+
+  if (isPaid && isActive) {
+
+    statusLabel =
+      'Active';
+
+  } else if (isPaid && !isActive) {
+
+    statusLabel =
+      'Access inactive';
+
+  } else if (
+    paymentStatus === 'failed'
+  ) {
+
+    statusLabel =
+      'Payment failed';
+
+  } else if (
+    paymentStatus === 'cancelled'
+  ) {
+
+    statusLabel =
+      'Payment cancelled';
+
+  }
+
+
+  const isPositive =
+    isPaid && isActive;
+
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.paymentCard,
+        pressed &&
+        styles.paymentPressed,
+      ]}
+    >
+
+      <View style={styles.paymentLeft}>
+
+        <View style={styles.paymentIconBox}>
+
+          <Text style={styles.paymentIcon}>
+            ₹
+          </Text>
+
+        </View>
+
+
+        <View
+          style={
+            styles.paymentContent
+          }
+        >
+
+          <View
+            style={
+              styles.paymentTitleRow
+            }
+          >
+
+            <Text
+              style={
+                styles.paymentEyebrow
+              }
+            >
+              SUBSCRIPTION & PAYMENT
+            </Text>
+
+
+            <View
+              style={[
+                styles.paymentStatusBadge,
+                isPositive
+                  ? styles.paymentActiveBadge
+                  : styles.paymentPendingBadge,
+              ]}
+            >
+
+              <View
+                style={[
+                  styles.paymentStatusDot,
+                  isPositive
+                    ? styles.paymentActiveDot
+                    : styles.paymentPendingDot,
+                ]}
+              />
+
+
+              <Text
+                style={[
+                  styles.paymentStatusText,
+                  isPositive
+                    ? styles.paymentActiveText
+                    : styles.paymentPendingText,
+                ]}
+              >
+                {statusLabel}
+              </Text>
+
+            </View>
+
+          </View>
+
+
+          <Text style={styles.paymentPlan}>
+            Veda Doctor Access
+          </Text>
+
+
+          <Text style={styles.paymentValidity}>
+            {nextPaymentDate !== '—'
+              ? `Next payment • ${nextPaymentDate}`
+              : 'View payment & access details'}
+          </Text>
+
+        </View>
+
+      </View>
+
+
+      <View style={styles.paymentArrowBox}>
+
+        <Text style={styles.paymentArrow}>
+          →
+        </Text>
+
+      </View>
+
+    </Pressable>
+  );
+}
+
+
+/* =====================================================
+   ACCESS REQUEST CARD
+===================================================== */
+
+function AccessRequestCard({
+  loading,
+  onPress,
+}) {
+
+  return (
+    <View style={styles.accessRequestCard}>
+
+      <View style={styles.accessRequestTop}>
+
+        <View style={styles.accessRequestIcon}>
+
+          <Text style={styles.accessRequestIconText}>
+            ↗
+          </Text>
+
+        </View>
+
+
+        <View style={styles.accessRequestContent}>
+
+          <Text style={styles.accessRequestEyebrow}>
+            ACCESS REQUEST
+          </Text>
+
+
+          <Text style={styles.accessRequestTitle}>
+            Your doctor access is inactive
+          </Text>
+
+
+          <Text style={styles.accessRequestText}>
+            Send a request to the administrator
+            to restore your Veda access.
+          </Text>
+
+        </View>
+
+      </View>
+
+
+      <Pressable
+        disabled={loading}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.accessRequestButton,
+          pressed &&
+          styles.accessRequestButtonPressed,
+          loading &&
+          styles.accessRequestButtonDisabled,
+        ]}
+      >
+
+        {loading ? (
+
+          <View style={styles.requestLoadingRow}>
+
+            <Animated.View
+              style={styles.requestLoadingDot}
+            />
+
+            <Text
+              style={
+                styles.accessRequestButtonText
+              }
+            >
+              Sending request...
+            </Text>
+
+          </View>
+
+        ) : (
+
+          <>
+            <Text
+              style={
+                styles.accessRequestButtonText
+              }
+            >
+              Request access
+            </Text>
+
+            <Text
+              style={
+                styles.accessRequestButtonArrow
+              }
+            >
+              →
+            </Text>
+          </>
+
+        )}
+
+      </Pressable>
+
+    </View>
+  );
+}
+
+
+/* =====================================================
+   ACCESS PENDING CARD
+===================================================== */
+
+function AccessPendingCard() {
+
+  return (
+    <View style={styles.pendingAccessCard}>
+
+      <View style={styles.pendingAccessIcon}>
+
+        <Text style={styles.pendingAccessIconText}>
+          ✓
+        </Text>
+
+      </View>
+
+
+      <View style={styles.pendingAccessContent}>
+
+        <Text style={styles.pendingAccessEyebrow}>
+          ACCESS REQUEST
+        </Text>
+
+
+        <Text style={styles.pendingAccessTitle}>
+          Request pending
+        </Text>
+
+
+        <Text style={styles.pendingAccessText}>
+          Your request has been sent to the
+          administrator. You will be notified
+          when it is reviewed.
+        </Text>
+
+      </View>
+
+    </View>
+  );
+}
+
+
+/* =====================================================
+   PAYMENT REMINDER CARD
+===================================================== */
+
+function PaymentReminderCard({
+  onPress,
+}) {
+
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.paymentReminderCard,
+        pressed &&
+        styles.paymentReminderPressed,
+      ]}
+    >
+
+      <View style={styles.paymentReminderIcon}>
+
+        <Text style={styles.paymentReminderIconText}>
+          ₹
+        </Text>
+
+      </View>
+
+
+      <View style={styles.paymentReminderContent}>
+
+        <Text style={styles.paymentReminderEyebrow}>
+          PAYMENT REMINDER
+        </Text>
+
+
+        <Text style={styles.paymentReminderTitle}>
+          Payment action required
+        </Text>
+
+
+        <Text style={styles.paymentReminderText}>
+          Open your payment details to review
+          your Veda access and payment status.
+        </Text>
+
+      </View>
+
+
+      <View style={styles.paymentReminderArrow}>
+
+        <Text style={styles.paymentReminderArrowText}>
+          →
+        </Text>
+
+      </View>
+
+    </Pressable>
+  );
+}
+
+
+/* =====================================================
+   DATE FORMAT
+===================================================== */
+
+function formatDate(value) {
+
+  if (!value) {
+    return '—';
+  }
+
+
+  const date =
+    new Date(value);
+
+
+  if (
+    Number.isNaN(
+      date.getTime()
+    )
+  ) {
+    return '—';
+  }
+
+
+  return date.toLocaleDateString(
+    'en-IN',
+    {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    }
   );
 }
 
@@ -625,12 +1917,14 @@ function SectionHeader({
   eyebrow,
   title,
 }) {
+
   return (
     <View>
 
       <Text style={styles.sectionEyebrow}>
         {eyebrow}
       </Text>
+
 
       <Text style={styles.sectionTitle}>
         {title}
@@ -649,12 +1943,14 @@ function ClinicalMiniStat({
   value,
   label,
 }) {
+
   return (
     <View style={styles.clinicalStat}>
 
       <Text style={styles.clinicalValue}>
         {value}
       </Text>
+
 
       <Text style={styles.clinicalLabel}>
         {label}
@@ -676,28 +1972,41 @@ function DoctorAction({
   primary,
   onPress,
 }) {
-  const scale =
-    useRef(
-      new Animated.Value(1)
-    ).current;
+
+  const scale = useRef(
+    new Animated.Value(1)
+  ).current;
+
 
   const onPressIn = () => {
-    Animated.spring(scale, {
-      toValue: 0.975,
-      speed: 30,
-      bounciness: 4,
-      useNativeDriver: true,
-    }).start();
+
+    Animated.spring(
+      scale,
+      {
+        toValue: 0.975,
+        speed: 30,
+        bounciness: 4,
+        useNativeDriver: true,
+      }
+    ).start();
+
   };
 
+
   const onPressOut = () => {
-    Animated.spring(scale, {
-      toValue: 1,
-      speed: 25,
-      bounciness: 5,
-      useNativeDriver: true,
-    }).start();
+
+    Animated.spring(
+      scale,
+      {
+        toValue: 1,
+        speed: 25,
+        bounciness: 5,
+        useNativeDriver: true,
+      }
+    ).start();
+
   };
+
 
   return (
     <Animated.View
@@ -720,7 +2029,7 @@ function DoctorAction({
         style={[
           styles.doctorAction,
           primary &&
-            styles.doctorActionPrimary,
+          styles.doctorActionPrimary,
         ]}
       >
 
@@ -728,37 +2037,45 @@ function DoctorAction({
           style={[
             styles.actionIcon,
             primary &&
-              styles.actionIconPrimary,
+            styles.actionIconPrimary,
           ]}
         >
+
           <Text
             style={[
               styles.actionIconText,
               primary &&
-                styles.actionIconTextPrimary,
+              styles.actionIconTextPrimary,
             ]}
           >
             {icon}
           </Text>
+
         </View>
 
-        <View style={styles.actionTextArea}>
+
+        <View
+          style={
+            styles.actionTextArea
+          }
+        >
 
           <Text
             style={[
               styles.actionTitle,
               primary &&
-                styles.actionTitlePrimary,
+              styles.actionTitlePrimary,
             ]}
           >
             {title}
           </Text>
 
+
           <Text
             style={[
               styles.actionDescription,
               primary &&
-                styles.actionDescriptionPrimary,
+              styles.actionDescriptionPrimary,
             ]}
           >
             {description}
@@ -766,22 +2083,25 @@ function DoctorAction({
 
         </View>
 
+
         <View
           style={[
             styles.actionArrowBox,
             primary &&
-              styles.actionArrowBoxPrimary,
+            styles.actionArrowBoxPrimary,
           ]}
         >
+
           <Text
             style={[
               styles.actionArrow,
               primary &&
-                styles.actionArrowPrimary,
+              styles.actionArrowPrimary,
             ]}
           >
             →
           </Text>
+
         </View>
 
       </Pressable>
@@ -801,6 +2121,7 @@ function PatientItem({
   total,
   onPress,
 }) {
+
   const initial =
     patient?.name
       ?.trim()
@@ -808,60 +2129,106 @@ function PatientItem({
       ?.toUpperCase() ||
     'P';
 
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.patientItem,
         index === total - 1 &&
-          styles.patientLast,
+        styles.patientLast,
         pressed &&
-          styles.pressed,
+        styles.pressed,
       ]}
     >
 
-      <View style={styles.patientAvatar}>
+      <View
+        style={
+          styles.patientAvatar
+        }
+      >
 
-        <Text style={styles.patientInitial}>
+        <Text
+          style={
+            styles.patientInitial
+          }
+        >
           {initial}
         </Text>
 
       </View>
 
 
-      <View style={styles.patientDetails}>
+      <View
+        style={
+          styles.patientDetails
+        }
+      >
 
         <Text
-          style={styles.patientName}
+          style={
+            styles.patientName
+          }
           numberOfLines={1}
         >
           {patient?.name ||
             'Unnamed patient'}
         </Text>
 
-        <View style={styles.patientMetaRow}>
 
-          <Text style={styles.patientMeta}>
+        <View
+          style={
+            styles.patientMetaRow
+          }
+        >
+
+          <Text
+            style={
+              styles.patientMeta
+            }
+          >
             {patient?.age || '—'} yrs
           </Text>
 
-          <View style={styles.metaBullet} />
 
-          <Text style={styles.patientMeta}>
+          <View
+            style={
+              styles.metaBullet
+            }
+          />
+
+
+          <Text
+            style={
+              styles.patientMeta
+            }
+          >
             {patient?.gender || '—'}
           </Text>
 
+
           {patient?.patientId ? (
-            <>
-              <View style={styles.metaBullet} />
+
+            <React.Fragment>
+
+              <View
+                style={
+                  styles.metaBullet
+                }
+              />
+
 
               <Text
-                style={styles.patientId}
+                style={
+                  styles.patientId
+                }
                 numberOfLines={1}
               >
                 {patient.patientId}
               </Text>
-            </>
+
+            </React.Fragment>
+
           ) : null}
 
         </View>
@@ -869,9 +2236,17 @@ function PatientItem({
       </View>
 
 
-      <View style={styles.patientOpen}>
+      <View
+        style={
+          styles.patientOpen
+        }
+      >
 
-        <Text style={styles.patientOpenArrow}>
+        <Text
+          style={
+            styles.patientOpenArrow
+          }
+        >
           →
         </Text>
 
@@ -889,37 +2264,67 @@ function PatientItem({
 function EmptyPatients({
   onPress,
 }) {
+
   return (
-    <View style={styles.emptyPatient}>
+    <View
+      style={
+        styles.emptyPatient
+      }
+    >
 
-      <View style={styles.emptyIcon}>
+      <View
+        style={
+          styles.emptyIcon
+        }
+      >
 
-        <Text style={styles.emptyIconText}>
+        <Text
+          style={
+            styles.emptyIconText
+          }
+        >
           ＋
         </Text>
 
       </View>
 
-      <Text style={styles.emptyTitle}>
+
+      <Text
+        style={
+          styles.emptyTitle
+        }
+      >
         No patient records yet
       </Text>
 
-      <Text style={styles.emptyText}>
+
+      <Text
+        style={
+          styles.emptyText
+        }
+      >
         Add your first patient to begin
         building their clinical record.
       </Text>
+
 
       <Pressable
         onPress={onPress}
         style={({ pressed }) => [
           styles.emptyButton,
           pressed &&
-            styles.pressed,
+          styles.pressed,
         ]}
       >
-        <Text style={styles.emptyButtonText}>
+
+        <Text
+          style={
+            styles.emptyButtonText
+          }
+        >
           Add patient →
         </Text>
+
       </Pressable>
 
     </View>
@@ -932,6 +2337,118 @@ function EmptyPatients({
 ===================================================== */
 
 const styles = StyleSheet.create({
+
+  /* ===================================================
+     NOTIFICATION
+  =================================================== */
+
+  notificationOverlay: {
+    flex: 1,
+    backgroundColor:
+      'rgba(5, 18, 30, 0.62)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+
+  notificationModal: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#E2EAF0',
+    shadowColor: '#071B2B',
+    shadowOffset: {
+      width: 0,
+      height: 18,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    elevation: 12,
+  },
+
+  notificationTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+
+  notificationMark: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#E4F5EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  notificationMarkText: {
+    color: '#147A58',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+
+  notificationEyebrow: {
+    color: '#14805E',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
+
+  notificationTitle: {
+    color: '#102637',
+    fontSize: 23,
+    lineHeight: 29,
+    fontWeight: '800',
+    marginBottom: 9,
+  },
+
+  notificationMessage: {
+    color: '#526676',
+    fontSize: 15,
+    lineHeight: 23,
+    marginBottom: 23,
+  },
+
+  notificationButton: {
+    minHeight: 50,
+    borderRadius: 12,
+    backgroundColor: '#102C3C',
+    paddingHorizontal: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  notificationButtonPressed: {
+    opacity: 0.84,
+  },
+
+  notificationButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  notificationButtonArrow: {
+    color: '#A9D8C5',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+
+  notificationDeleteButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 3,
+  },
+
+  notificationDeleteText: {
+    color: '#A62F3D',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
 
   /* ===================================================
      TOP
@@ -1036,7 +2553,7 @@ const styles = StyleSheet.create({
 
 
   /* ===================================================
-     CLINIC CARD
+     HERO
   =================================================== */
 
   clinicCard: {
@@ -1045,7 +2562,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#091827',
     borderRadius: 28,
     minHeight: 278,
-    marginBottom: 27,
+    marginBottom: 20,
   },
 
   clinicGlow: {
@@ -1176,6 +2693,395 @@ const styles = StyleSheet.create({
     height: 27,
     backgroundColor:
       'rgba(255,255,255,0.10)',
+  },
+
+
+  /* ===================================================
+     PAYMENT SUMMARY
+  =================================================== */
+
+  paymentCard: {
+    minHeight: 84,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3EAF2',
+    borderRadius: 20,
+    paddingHorizontal: 13,
+    paddingVertical: 12,
+    marginBottom: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+
+    shadowColor: '#0B1F33',
+    shadowOffset: {
+      width: 0,
+      height: 5,
+    },
+    shadowOpacity: 0.04,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+
+  paymentPressed: {
+    opacity: 0.72,
+  },
+
+  paymentLeft: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  paymentIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 15,
+    backgroundColor: '#EEF5FF',
+    borderWidth: 1,
+    borderColor: '#DFEBF8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  paymentIcon: {
+    color: colors.blue,
+    fontSize: 19,
+    fontWeight: '900',
+  },
+
+  paymentContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  paymentTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+  },
+
+  paymentEyebrow: {
+    color: colors.blue,
+    fontSize: 7.5,
+    fontWeight: '900',
+    letterSpacing: 1.05,
+  },
+
+  paymentStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+
+  paymentActiveBadge: {
+    backgroundColor: '#ECFDF5',
+  },
+
+  paymentPendingBadge: {
+    backgroundColor: '#FFF7ED',
+  },
+
+  paymentStatusDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 10,
+    marginRight: 4,
+  },
+
+  paymentActiveDot: {
+    backgroundColor: '#10B981',
+  },
+
+  paymentPendingDot: {
+    backgroundColor: '#F59E0B',
+  },
+
+  paymentStatusText: {
+    fontSize: 7,
+    fontWeight: '900',
+  },
+
+  paymentActiveText: {
+    color: '#059669',
+  },
+
+  paymentPendingText: {
+    color: '#D97706',
+  },
+
+  paymentPlan: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+
+  paymentValidity: {
+    color: colors.muted,
+    fontSize: 9,
+    marginTop: 2,
+  },
+
+  paymentArrowBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: '#F6F8FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  paymentArrow: {
+    color: '#64748B',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
+
+  /* ===================================================
+     ACCESS REQUEST
+  =================================================== */
+
+  accessRequestCard: {
+    backgroundColor: '#FFF9F0',
+    borderWidth: 1,
+    borderColor: '#F6D7A6',
+    borderRadius: 20,
+    padding: 15,
+    marginBottom: 14,
+  },
+
+  accessRequestTop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+
+  accessRequestIcon: {
+    width: 45,
+    height: 45,
+    borderRadius: 14,
+    backgroundColor: '#FFF0D5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  accessRequestIconText: {
+    color: '#C77A08',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+
+  accessRequestContent: {
+    flex: 1,
+  },
+
+  accessRequestEyebrow: {
+    color: '#B76A00',
+    fontSize: 7.5,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+
+  accessRequestTitle: {
+    color: '#5A3B0B',
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+
+  accessRequestText: {
+    color: '#866B45',
+    fontSize: 10,
+    lineHeight: 16,
+    marginTop: 4,
+  },
+
+  accessRequestButton: {
+    minHeight: 46,
+    borderRadius: 13,
+    backgroundColor: '#102C3C',
+    marginTop: 13,
+    paddingHorizontal: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  accessRequestButtonPressed: {
+    opacity: 0.8,
+  },
+
+  accessRequestButtonDisabled: {
+    opacity: 0.6,
+  },
+
+  accessRequestButtonText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  accessRequestButtonArrow: {
+    color: '#69AFFF',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  requestLoadingRow: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  requestLoadingDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 10,
+    backgroundColor: '#69AFFF',
+    marginRight: 8,
+  },
+
+
+  /* ===================================================
+     ACCESS PENDING
+  =================================================== */
+
+  pendingAccessCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFFAF5',
+    borderWidth: 1,
+    borderColor: '#CBEBDD',
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  pendingAccessIcon: {
+    width: 45,
+    height: 45,
+    borderRadius: 14,
+    backgroundColor: '#DDF6E9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  pendingAccessIconText: {
+    color: '#12915F',
+    fontSize: 20,
+    fontWeight: '900',
+  },
+
+  pendingAccessContent: {
+    flex: 1,
+  },
+
+  pendingAccessEyebrow: {
+    color: '#12835A',
+    fontSize: 7.5,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+
+  pendingAccessTitle: {
+    color: '#174B37',
+    fontSize: 14,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+
+  pendingAccessText: {
+    color: '#567968',
+    fontSize: 10,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+
+
+  /* ===================================================
+     PAYMENT REMINDER
+  =================================================== */
+
+  paymentReminderCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF7ED',
+    borderWidth: 1,
+    borderColor: '#FED7AA',
+    borderRadius: 20,
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  paymentReminderPressed: {
+    opacity: 0.72,
+  },
+
+  paymentReminderIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFEDD5',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  paymentReminderIconText: {
+    color: '#C2410C',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  paymentReminderContent: {
+    flex: 1,
+  },
+
+  paymentReminderEyebrow: {
+    color: '#C2410C',
+    fontSize: 7.5,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+
+  paymentReminderTitle: {
+    color: '#7C2D12',
+    fontSize: 13,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+
+  paymentReminderText: {
+    color: '#9A6A4B',
+    fontSize: 9.5,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+
+  paymentReminderArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#FFF0DF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  paymentReminderArrowText: {
+    color: '#C2410C',
+    fontSize: 15,
+    fontWeight: '900',
   },
 
 
@@ -1352,12 +3258,32 @@ const styles = StyleSheet.create({
 
 
   /* ===================================================
-     LOADING
+     ANALYTICS
   =================================================== */
 
   loadingContainer: {
     minHeight: 110,
     justifyContent: 'center',
+  },
+
+  noAnalytics: {
+    alignItems: 'center',
+    paddingVertical: 22,
+  },
+
+  noAnalyticsTitle: {
+    color: colors.ink,
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  noAnalyticsText: {
+    color: colors.muted,
+    fontSize: 10.5,
+    lineHeight: 17,
+    textAlign: 'center',
+    marginTop: 5,
+    maxWidth: 280,
   },
 
 
@@ -1464,7 +3390,7 @@ const styles = StyleSheet.create({
 
 
   /* ===================================================
-     EMPTY PATIENT
+     EMPTY
   =================================================== */
 
   emptyPatient: {
@@ -1519,7 +3445,7 @@ const styles = StyleSheet.create({
 
 
   /* ===================================================
-     PROFESSIONAL CARD
+     PROFESSIONAL
   =================================================== */
 
   proCard: {
@@ -1591,4 +3517,5 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.68,
   },
+
 });

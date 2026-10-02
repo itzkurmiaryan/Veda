@@ -1,9 +1,22 @@
-import React, { useEffect, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useState,
+} from 'react';
+
+import {
+  useFocusEffect,
+} from '@react-navigation/native';
+
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 
 import {
   Alert,
+  Image,
+  Modal,
+  Platform,
   Pressable,
-  StyleSheet,
   Text,
   View,
 } from 'react-native';
@@ -16,8 +29,24 @@ import {
   FadeIn,
   Loading,
   Screen,
-  colors,
 } from '../components/UI';
+
+import {
+  AccessRequestCard,
+  DoctorDirectoryRow,
+  EmptyState,
+  KpiCard,
+  MetaBox,
+  NotificationRow,
+  PaymentEntryModal,
+  PaymentHistoryModal,
+  RequestCard,
+  calculateLocalDays,
+  formatLocalDate,
+  isDateDue,
+  isPaymentRequestCoolingDown,
+} from './AdminDashboardComponents';
+import styles from './AdminDashboardStyles';
 
 import { useAuth } from '../context/AuthContext';
 
@@ -34,41 +63,292 @@ export default function AdminDashboard({ navigation }) {
   const [doctors, setDoctors] = useState([]);
   const [overview, setOverview] = useState(null);
 
+  const [notifications, setNotifications] = useState([]);
+  const [accessRequests, setAccessRequests] = useState([]);
+  const [selectedDoctorGroup, setSelectedDoctorGroup] =
+    useState(null);
+
   const [loading, setLoading] = useState(true);
 
   const [deleteDoctorId, setDeleteDoctorId] = useState(null);
   const [deletingDoctorId, setDeletingDoctorId] = useState(null);
   const [deleteError, setDeleteError] = useState('');
+  const [paymentProofPreview, setPaymentProofPreview] =
+    useState(null);
+  const [paymentProofLoading, setPaymentProofLoading] =
+    useState(false);
+  const [paymentEntryDoctor, setPaymentEntryDoctor] =
+    useState(null);
+  const [paymentHistoryDoctor, setPaymentHistoryDoctor] =
+    useState(null);
+  const [paymentAmount, setPaymentAmount] =
+    useState('');
+  const [paymentMode, setPaymentMode] =
+    useState(null);
+  const [paymentNote, setPaymentNote] =
+    useState('');
+  const [paymentTransactionId, setPaymentTransactionId] =
+    useState('');
+  const [paymentMonthsPaid, setPaymentMonthsPaid] =
+    useState('1');
+  const [paymentProof, setPaymentProof] =
+    useState(null);
 
-  /* =========================================
+  /* ================================================================
+     HELPERS
+  ================================================================= */
+
+  const unwrap = (response, fallback = []) => {
+    const value = response?.data?.data;
+
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (value && typeof value === 'object') {
+      return value;
+    }
+
+    if (Array.isArray(response?.data)) {
+      return response.data;
+    }
+
+    return fallback;
+  };
+
+  const getAccessActive = (doctorItem) => {
+    if (!doctorItem) {
+      return false;
+    }
+
+    if (typeof doctorItem.accessActive === 'boolean') {
+      return doctorItem.accessActive;
+    }
+
+    if (typeof doctorItem.active === 'boolean') {
+      return doctorItem.active;
+    }
+
+    return true;
+  };
+
+  const getPaymentStatus = (doctorItem) => {
+    return doctorItem?.paymentStatus || 'pending';
+  };
+
+  const formatDate = (value) => {
+    if (!value) {
+      return 'Not available';
+    }
+
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return String(value);
+    }
+
+    return date.toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
+
+  const calculateDaysUsed = (doctorItem) => {
+    if (typeof doctorItem?.daysUsed === 'number') {
+      return doctorItem.daysUsed;
+    }
+
+    const start =
+      doctorItem?.accessStartDate ||
+      doctorItem?.registrationDate ||
+      doctorItem?.createdAt;
+
+    if (!start) {
+      return 0;
+    }
+
+    const startDate = new Date(start);
+
+    if (Number.isNaN(startDate.getTime())) {
+      return 0;
+    }
+
+    const difference =
+      new Date().getTime() -
+      startDate.getTime();
+
+    return Math.max(
+      0,
+      Math.floor(
+        difference /
+          (1000 * 60 * 60 * 24)
+      )
+    );
+  };
+
+  const isPaymentDue = (doctorItem) => {
+    if (!doctorItem) {
+      return false;
+    }
+
+    if (doctorItem.paymentStatus === 'paid') {
+      return false;
+    }
+
+    if (doctorItem.paymentReminderRequested === true) {
+      return true;
+    }
+
+    if (doctorItem.nextPaymentDate) {
+      const nextDate =
+        new Date(
+          doctorItem.nextPaymentDate
+        );
+
+      if (!Number.isNaN(nextDate.getTime())) {
+        return nextDate <= new Date();
+      }
+    }
+
+    return false;
+  };
+
+  /* ================================================================
      LOAD ADMIN DASHBOARD
-  ========================================= */
+  ================================================================= */
 
-  const load = async () => {
+  const load = useCallback(async () => {
     try {
       setLoading(true);
 
+      const results =
+        await Promise.allSettled([
+          api.get('/admin/requests'),
+          api.get('/admin/doctors'),
+          api.get('/analytics/overview'),
+          api.get('/admin/notifications'),
+          api.get('/admin/access-requests'),
+        ]);
+
       const [
-        requestsResponse,
-        doctorsResponse,
-        overviewResponse,
-      ] = await Promise.all([
-        api.get('/admin/requests'),
-        api.get('/admin/doctors'),
-        api.get('/analytics/overview'),
-      ]);
+        requestsResult,
+        doctorsResult,
+        overviewResult,
+        notificationsResult,
+        accessRequestsResult,
+      ] = results;
 
-      setRequests(
-        requestsResponse?.data?.data || []
-      );
+      /* REQUESTS */
 
-      setDoctors(
-        doctorsResponse?.data?.data || []
-      );
+      if (
+        requestsResult.status ===
+        'fulfilled'
+      ) {
+        setRequests(
+          unwrap(
+            requestsResult.value,
+            []
+          )
+        );
+      } else {
+        console.error(
+          'REQUESTS ERROR:',
+          requestsResult.reason
+        );
+      }
 
-      setOverview(
-        overviewResponse?.data?.data || null
-      );
+      /* DOCTORS */
+
+      if (
+        doctorsResult.status ===
+        'fulfilled'
+      ) {
+        const serverDoctors =
+          unwrap(
+            doctorsResult.value,
+            []
+          );
+
+        setDoctors(
+          Array.isArray(serverDoctors)
+            ? serverDoctors
+            : []
+        );
+      } else {
+        console.error(
+          'DOCTORS ERROR:',
+          doctorsResult.reason
+        );
+      }
+
+      /* OVERVIEW */
+
+      if (
+        overviewResult.status ===
+        'fulfilled'
+      ) {
+        setOverview(
+          unwrap(
+            overviewResult.value,
+            null
+          )
+        );
+      } else {
+        setOverview(null);
+      }
+
+      /* NOTIFICATIONS */
+
+      if (
+        notificationsResult.status ===
+        'fulfilled'
+      ) {
+        const serverNotifications =
+          unwrap(
+            notificationsResult.value,
+            []
+          );
+
+        setNotifications(
+          Array.isArray(
+            serverNotifications
+          )
+            ? serverNotifications
+            : []
+        );
+      } else {
+        console.error(
+          'NOTIFICATIONS ERROR:',
+          notificationsResult.reason
+        );
+      }
+
+      /* ACCESS REQUESTS */
+
+      if (
+        accessRequestsResult.status ===
+        'fulfilled'
+      ) {
+        const serverAccessRequests =
+          unwrap(
+            accessRequestsResult.value,
+            []
+          );
+
+        setAccessRequests(
+          Array.isArray(
+            serverAccessRequests
+          )
+            ? serverAccessRequests
+            : []
+        );
+      } else {
+        console.error(
+          'ACCESS REQUESTS ERROR:',
+          accessRequestsResult.reason
+        );
+      }
     } catch (error) {
       console.error(
         'ADMIN DASHBOARD ERROR:',
@@ -84,17 +364,66 @@ export default function AdminDashboard({ navigation }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     load();
-  }, []);
+  }, [load]);
 
-  /* =========================================
-     APPROVE / REJECT REQUEST
-  ========================================= */
+  useFocusEffect(
+    useCallback(() => {
+      let mounted = true;
 
-  const act = async (path, type) => {
+      const refreshAccessRequests = async () => {
+        try {
+          const response =
+            await api.get('/admin/access-requests');
+
+          if (mounted) {
+            const requests =
+              response?.data?.data;
+
+            setAccessRequests(
+              Array.isArray(requests)
+                ? requests
+                : []
+            );
+          }
+        } catch (error) {
+          if (mounted) {
+            console.error(
+              'ACCESS REQUESTS REFRESH ERROR:',
+              error?.response?.data ||
+                error?.message ||
+                error
+            );
+          }
+        }
+      };
+
+      refreshAccessRequests();
+
+      const interval =
+        setInterval(
+          refreshAccessRequests,
+          30 * 1000
+        );
+
+      return () => {
+        mounted = false;
+        clearInterval(interval);
+      };
+    }, [])
+  );
+
+  /* ================================================================
+     APPROVE / REJECT REGISTRATION
+  ================================================================= */
+
+  const act = async (
+    path,
+    type
+  ) => {
     if (actionLoading) {
       return;
     }
@@ -102,7 +431,7 @@ export default function AdminDashboard({ navigation }) {
     const messages = {
       approve: [
         'Approving doctor...',
-        'Updating the doctor access request.',
+        'Creating the doctor workspace.',
       ],
 
       reject: [
@@ -127,7 +456,7 @@ export default function AdminDashboard({ navigation }) {
 
       startAction(
         'Refreshing admin dashboard...',
-        'Updating the latest network information.'
+        'Updating the latest information.'
       );
 
       await load();
@@ -143,9 +472,9 @@ export default function AdminDashboard({ navigation }) {
     }
   };
 
-  /* =========================================
-     ACCESS CONTROL
-  ========================================= */
+  /* ================================================================
+     REMOVE / RESTORE ACCESS
+  ================================================================= */
 
   const access = async (doctorItem) => {
     if (
@@ -155,24 +484,47 @@ export default function AdminDashboard({ navigation }) {
       return;
     }
 
-    const removing = doctorItem.active;
+    const currentlyActive =
+      getAccessActive(
+        doctorItem
+      );
+
+    const removing =
+      currentlyActive;
 
     try {
       startAction(
         removing
           ? 'Removing doctor access...'
           : 'Restoring doctor access...',
-
         removing
-          ? 'Updating secure access permissions.'
+          ? 'Clinical records will remain preserved.'
           : 'Restoring access to the doctor workspace.'
       );
 
       await api.patch(
         `/admin/doctors/${doctorItem._id}/access`,
         {
-          active: !doctorItem.active,
+          active:
+            !currentlyActive,
         }
+      );
+
+      /*
+       * Immediately update local UI.
+       */
+      setDoctors((currentDoctors) =>
+        currentDoctors.map((item) =>
+          item._id === doctorItem._id
+            ? {
+                ...item,
+                active:
+                  !currentlyActive,
+                accessActive:
+                  !currentlyActive,
+              }
+            : item
+        )
       );
 
       startAction(
@@ -183,32 +535,644 @@ export default function AdminDashboard({ navigation }) {
       await load();
     } catch (error) {
       Alert.alert(
-        'Action failed',
+        'Access update failed',
         error.response?.data?.message ||
           error.message ||
-          'Unable to update access.'
+          'Unable to update doctor access.'
       );
     } finally {
       stopAction();
     }
   };
 
-  /* =========================================
-     DELETE CONFIRMATION
-  ========================================= */
+  /* ================================================================
+     PAYMENT REQUEST
+  ================================================================= */
 
-  const openDeleteConfirmation = (
+  const requestPayment = async (
     doctorItem
   ) => {
-    if (actionLoading) {
+    if (
+      actionLoading ||
+      !doctorItem?._id
+    ) {
       return;
     }
 
-    setDeleteError('');
-    setDeleteDoctorId(
-      doctorItem._id
+    try {
+      startAction(
+        'Sending payment reminder...',
+        'Creating a payment reminder for the doctor.'
+      );
+
+      const response =
+        await api.post(
+          `/admin/doctors/${doctorItem._id}/payment-request`
+        );
+
+      /*
+       * Backend should return:
+       *
+       * {
+       *   success: true,
+       *   data: updatedDoctor
+       * }
+       */
+
+      const updatedDoctor =
+        response?.data?.data ||
+        response?.data?.doctor ||
+        null;
+
+      /*
+       * IMPORTANT:
+       * Update local state immediately.
+       * This makes Admin UI change without waiting
+       * for another API request.
+       */
+      setDoctors((currentDoctors) =>
+        currentDoctors.map((item) => {
+          if (
+            item._id !==
+            doctorItem._id
+          ) {
+            return item;
+          }
+
+          return {
+            ...item,
+
+            ...(updatedDoctor || {}),
+
+            paymentStatus:
+              updatedDoctor?.paymentStatus ||
+              item.paymentStatus ||
+              'pending',
+
+            paymentReminderRequested:
+              true,
+
+            paymentReminderAt:
+              updatedDoctor?.paymentReminderAt ||
+              new Date().toISOString(),
+          };
+        })
+      );
+
+      startAction(
+        'Payment reminder sent...',
+        'Refreshing the latest payment status.'
+      );
+
+      /*
+       * Refresh from backend too.
+       */
+      await load();
+
+      Alert.alert(
+        'Payment reminder sent',
+        `${doctorItem.name || 'Doctor'} has been notified for payment.`
+      );
+    } catch (error) {
+      console.error(
+        'PAYMENT REQUEST ERROR:',
+        error
+      );
+
+      Alert.alert(
+        'Payment request failed',
+        error.response?.data?.message ||
+          error.message ||
+          'Unable to send payment request.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
+
+  /* ================================================================
+     MARK PAYMENT PAID
+  ================================================================= */
+
+  const updateAccessRequestPayment = (
+    doctorId,
+    updatedDoctor
+  ) => {
+    setAccessRequests(
+      (currentRequests) =>
+        currentRequests.map(
+          (request) => {
+            const requestDoctor =
+              request.doctorId;
+            const requestDoctorId =
+              requestDoctor?._id ||
+              requestDoctor;
+
+            if (
+              String(requestDoctorId) !==
+              String(doctorId)
+            ) {
+              return request;
+            }
+
+            return {
+              ...request,
+              doctorId: {
+                ...(typeof requestDoctor ===
+                'object'
+                  ? requestDoctor
+                  : {}),
+                ...(updatedDoctor || {}),
+                paymentStatus:
+                  updatedDoctor?.paymentStatus ||
+                  'paid',
+                paymentReminderRequested:
+                  updatedDoctor?.paymentReminderRequested === true,
+                paymentReminderAt:
+                  updatedDoctor?.paymentReminderAt || null,
+              },
+            };
+          }
+        )
     );
   };
+
+  const markPaymentPaid = (
+    doctorItem
+  ) => {
+    if (
+      actionLoading ||
+      !doctorItem?._id
+    ) {
+      return;
+    }
+
+    setPaymentAmount('');
+    setPaymentMode(null);
+    setPaymentNote('');
+    setPaymentTransactionId('');
+    setPaymentMonthsPaid('1');
+    setPaymentProof(null);
+    setPaymentEntryDoctor(doctorItem);
+  };
+
+  const choosePaymentProof = async () => {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (!permission.granted) {
+        const message =
+          'Allow photo access to attach a payment screenshot.';
+        if (Platform.OS === 'web') {
+          globalThis.alert(message);
+        } else {
+          Alert.alert('Photo access needed', message);
+        }
+        return;
+      }
+
+      const result =
+        await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.45,
+        });
+
+      if (result.canceled) {
+        return;
+      }
+
+      const image = result.assets?.[0];
+      if (!image?.uri) {
+        throw new Error('Select an image screenshot.');
+      }
+
+      const resizeAction =
+        image.width >= image.height
+          ? { resize: { width: 1000 } }
+          : { resize: { height: 1000 } };
+      const compressed =
+        await ImageManipulator.manipulateAsync(
+          image.uri,
+          [resizeAction],
+          {
+            compress: 0.4,
+            format: ImageManipulator.SaveFormat.JPEG,
+            base64: true,
+          }
+        );
+
+      if (
+        !compressed.base64 ||
+        compressed.base64.length > 1400000
+      ) {
+        throw new Error(
+          'Screenshot is too large. Choose a smaller image.'
+        );
+      }
+
+      setPaymentProof({
+        data: compressed.base64,
+        contentType: 'image/jpeg',
+        fileName: image.fileName || 'payment-proof.jpg',
+        uri: compressed.uri,
+      });
+    } catch (error) {
+      const message =
+        error.message ||
+        'Unable to select the screenshot.';
+      if (Platform.OS === 'web') {
+        globalThis.alert(message);
+      } else {
+        Alert.alert('Unable to select screenshot', message);
+      }
+    }
+  };
+
+  const submitPaymentPaid = async () => {
+    const doctorItem = paymentEntryDoctor;
+    const amount = Number(paymentAmount);
+    const monthsPaid = Number(paymentMonthsPaid);
+
+    if (
+      !doctorItem?._id ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !Number.isInteger(monthsPaid) ||
+      monthsPaid < 1 ||
+      monthsPaid > 24
+    ) {
+      return;
+    }
+
+    const showPaymentMessage = (
+      title,
+      message
+    ) => {
+      if (Platform.OS === 'web') {
+        globalThis.alert(
+          `${title}\n\n${message}`
+        );
+        return;
+      }
+
+      Alert.alert(title, message);
+    };
+
+    try {
+      startAction(
+        'Updating payment...',
+        'Saving payment details securely.'
+      );
+
+      const response =
+        await api.patch(
+          `/admin/doctors/${doctorItem._id}/payment`,
+          {
+            status: 'paid',
+            amount,
+            monthsPaid,
+            transactionId:
+              paymentTransactionId.trim(),
+            note: paymentNote.trim(),
+            paymentProof: paymentProof
+              ? {
+                  data: paymentProof.data,
+                  contentType:
+                    paymentProof.contentType,
+                  fileName:
+                    paymentProof.fileName,
+                }
+              : null,
+          }
+        );
+
+      const updatedDoctor =
+        response?.data?.data ||
+        response?.data?.doctor ||
+        null;
+      const previousHistoryCount =
+        doctorItem.paymentHistory?.length || 0;
+
+      if (
+        updatedDoctor?.paymentStatus !== 'paid' ||
+        (updatedDoctor?.paymentHistory?.length || 0) <=
+          previousHistoryCount
+      ) {
+        throw new Error(
+          'The server did not confirm the payment and save its record.'
+        );
+      }
+
+      setDoctors((currentDoctors) =>
+        currentDoctors.map((item) =>
+          item._id === doctorItem._id
+            ? {
+                ...item,
+                ...updatedDoctor,
+                paymentStatus:
+                  updatedDoctor?.paymentStatus ||
+                  'paid',
+                paymentReminderRequested: false,
+                paymentReminderAt: null,
+              }
+            : item
+        )
+      );
+
+      updateAccessRequestPayment(
+        doctorItem._id,
+        updatedDoctor
+      );
+      setPaymentEntryDoctor(null);
+      showPaymentMessage(
+        'Payment recorded',
+        `${doctorItem.name || 'Doctor'} paid ₹${amount} for ${monthsPaid} month(s).`
+      );
+    } catch (error) {
+      console.error(
+        'MARK PAYMENT PAID ERROR:',
+        error
+      );
+
+      showPaymentMessage(
+        'Payment update failed',
+        error.response?.data?.message ||
+          error.message ||
+          'Unable to update payment.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
+
+  const submitPaymentUnpaid = async () => {
+    const doctorItem = paymentEntryDoctor;
+    if (!doctorItem?._id) {
+      return;
+    }
+
+    try {
+      startAction(
+        'Updating payment status...',
+        'Keeping this payment marked as unpaid.'
+      );
+      const response = await api.patch(
+        `/admin/doctors/${doctorItem._id}/payment`,
+        { status: 'unpaid' }
+      );
+      const updatedDoctor =
+        response?.data?.data ||
+        response?.data?.doctor ||
+        null;
+
+      if (updatedDoctor?.paymentStatus !== 'pending') {
+        throw new Error('The server did not confirm unpaid status.');
+      }
+
+      setDoctors((currentDoctors) =>
+        currentDoctors.map((item) =>
+          item._id === doctorItem._id
+            ? { ...item, ...updatedDoctor }
+            : item
+        )
+      );
+      updateAccessRequestPayment(
+        doctorItem._id,
+        updatedDoctor
+      );
+      setPaymentEntryDoctor(null);
+
+      const message =
+        `${doctorItem.name || 'Doctor'} remains unpaid.`;
+      if (Platform.OS === 'web') {
+        globalThis.alert(message);
+      } else {
+        Alert.alert('Payment unpaid', message);
+      }
+    } catch (error) {
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Unable to update payment status.';
+      if (Platform.OS === 'web') {
+        globalThis.alert(message);
+      } else {
+        Alert.alert('Payment update failed', message);
+      }
+    } finally {
+      stopAction();
+    }
+  };
+
+  /* ================================================================
+     ACCESS REQUEST APPROVE / REJECT
+  ================================================================= */
+
+  const handleAccessRequest =
+    async (
+      request,
+      action
+    ) => {
+      if (
+        actionLoading ||
+        !request?._id
+      ) {
+        return;
+      }
+
+      const isApprove =
+        action === 'approve';
+
+      try {
+        startAction(
+          isApprove
+            ? 'Approving access request...'
+            : 'Rejecting access request...',
+          isApprove
+            ? 'Restoring the doctor workspace.'
+            : 'Updating the doctor access request.'
+        );
+
+        await api.post(
+          `/admin/access-requests/${request._id}/${action}`
+        );
+
+        startAction(
+          'Refreshing access requests...',
+          'Updating the latest administrator information.'
+        );
+
+        await load();
+      } catch (error) {
+        Alert.alert(
+          'Access request failed',
+          error.response?.data?.message ||
+            error.message ||
+            'Unable to process access request.'
+        );
+      } finally {
+        stopAction();
+      }
+    };
+
+  const viewPaymentProof = async (
+    request
+  ) => {
+    if (!request?._id) {
+      return;
+    }
+
+    try {
+      setPaymentProofLoading(true);
+
+      const response =
+        await api.get(
+          `/admin/access-requests/${request._id}/payment-proof`
+        );
+
+      const proof =
+        response?.data?.data;
+
+      if (!proof?.data) {
+        throw new Error(
+          'Payment screenshot is unavailable.'
+        );
+      }
+
+      setPaymentProofPreview({
+        uri: `data:${proof.contentType};base64,${proof.data}`,
+        fileName: proof.fileName || 'Payment screenshot',
+        doctorName:
+          request.doctorId?.name || 'Doctor',
+      });
+    } catch (error) {
+      Alert.alert(
+        'Unable to open screenshot',
+        error.response?.data?.message ||
+          error.message ||
+          'Please try again.'
+      );
+    } finally {
+      setPaymentProofLoading(false);
+    }
+  };
+
+  const viewPaymentHistoryProof = async (
+    doctorItem,
+    record
+  ) => {
+    if (!doctorItem?._id || !record?._id) {
+      return;
+    }
+
+    try {
+      setPaymentProofLoading(true);
+      const response = await api.get(
+        `/admin/doctors/${doctorItem._id}/payments/${record._id}/proof`
+      );
+      const proof = response?.data?.data;
+
+      if (!proof?.data) {
+        throw new Error('Payment screenshot is unavailable.');
+      }
+
+      setPaymentProofPreview({
+        uri: `data:${proof.contentType};base64,${proof.data}`,
+        fileName: proof.fileName || 'Payment screenshot',
+        doctorName: doctorItem.name || 'Doctor',
+      });
+    } catch (error) {
+      const message =
+        error.response?.data?.message ||
+        error.message ||
+        'Unable to open screenshot.';
+      if (Platform.OS === 'web') {
+        globalThis.alert(message);
+      } else {
+        Alert.alert('Unable to open screenshot', message);
+      }
+    } finally {
+      setPaymentProofLoading(false);
+    }
+  };
+
+  const deleteNotification = (
+    notification
+  ) => {
+    if (!notification?._id) {
+      return;
+    }
+
+    const confirmDelete = async () => {
+      try {
+        await api.delete(
+          `/admin/notifications/${notification._id}`
+        );
+        setNotifications((current) =>
+          current.filter(
+            (item) =>
+              item._id !== notification._id
+          )
+        );
+      } catch (error) {
+        const message =
+          error.response?.data?.message ||
+          error.message ||
+          'Unable to delete notification.';
+
+        if (Platform.OS === 'web') {
+          globalThis.alert(
+            `Delete failed\n\n${message}`
+          );
+        } else {
+          Alert.alert('Delete failed', message);
+        }
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (
+        globalThis.confirm(
+          'This notification will be removed from the list.'
+        )
+      ) {
+        confirmDelete();
+      }
+
+      return;
+    }
+
+    Alert.alert(
+      'Delete notification?',
+      'This notification will be removed from the list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: confirmDelete,
+        },
+      ]
+    );
+  };
+
+  /* ================================================================
+     DELETE CONFIRMATION
+  ================================================================= */
+
+  const openDeleteConfirmation =
+    (doctorItem) => {
+      if (actionLoading) {
+        return;
+      }
+
+      setDeleteError('');
+      setDeleteDoctorId(
+        doctorItem._id
+      );
+    };
 
   const cancelDelete = () => {
     if (deletingDoctorId) {
@@ -239,7 +1203,7 @@ export default function AdminDashboard({ navigation }) {
 
       startAction(
         'Deleting doctor...',
-        'Removing the doctor and related clinical records.'
+        'Permanently removing the doctor and related records.'
       );
 
       await api.delete(
@@ -248,8 +1212,19 @@ export default function AdminDashboard({ navigation }) {
 
       setDeleteDoctorId(null);
 
+      /*
+       * Remove immediately from UI.
+       */
+      setDoctors((currentDoctors) =>
+        currentDoctors.filter(
+          (item) =>
+            item._id !==
+            doctorItem._id
+        )
+      );
+
       startAction(
-        'Doctor deleted successfully...',
+        'Doctor deleted...',
         'Refreshing the admin dashboard.'
       );
 
@@ -257,7 +1232,10 @@ export default function AdminDashboard({ navigation }) {
 
       await new Promise(
         (resolve) =>
-          setTimeout(resolve, 450)
+          setTimeout(
+            resolve,
+            450
+          )
       );
     } catch (error) {
       setDeleteError(
@@ -271,20 +1249,9 @@ export default function AdminDashboard({ navigation }) {
     }
   };
 
-  const adminName =
-    doctor?.name?.split(' ')[0] ||
-    'Admin';
-
-  /* =========================================
-     OPEN DOCTOR ANALYTICS
-     
-     IMPORTANT:
-     Doctor card now opens:
-     AdminDoctorDashboard
-
-     It does NOT directly open:
-     AdminDoctorEdit
-  ========================================= */
+  /* ================================================================
+     OPEN DOCTOR DASHBOARD
+  ================================================================= */
 
   const openDoctorDashboard = (
     doctorItem
@@ -304,263 +1271,454 @@ export default function AdminDashboard({ navigation }) {
     );
   };
 
-  /* =========================================
+  const adminName =
+    doctor?.name
+      ?.split(' ')[0] ||
+    'Admin';
+
+  /* ================================================================
+     COUNTERS
+  ================================================================= */
+
+  const pendingPaymentDoctors =
+    doctors.filter(
+      (item) =>
+        getPaymentStatus(item) !==
+          'paid' &&
+        isPaymentDue(item)
+    );
+
+  const pendingAccessRequests =
+    accessRequests.filter(
+      (item) =>
+        !item.status ||
+        item.status === 'pending'
+    );
+
+  const activeDoctors =
+    doctors.filter(getAccessActive);
+  const accessRequestDoctorIds =
+    new Set(
+      pendingAccessRequests.map((request) => {
+        const requestDoctor = request.doctorId;
+        return String(
+          requestDoctor?._id || requestDoctor || ''
+        );
+      })
+    );
+  const doctorGroups = {
+    all: doctors,
+    active: activeDoctors,
+    paymentsDue: pendingPaymentDoctors,
+    accessRequests: doctors.filter((item) =>
+      accessRequestDoctorIds.has(String(item._id))
+    ),
+  };
+  const doctorGroupLabels = {
+    all: 'Registered doctors',
+    active: 'Doctors with access',
+    paymentsDue: 'Payments due',
+    accessRequests: 'Doctors requesting access',
+  };
+  const selectedGroupDoctors = selectedDoctorGroup
+    ? doctorGroups[selectedDoctorGroup] || []
+    : [];
+
+  /* ================================================================
      DASHBOARD
-  ========================================= */
+  ================================================================= */
 
   return (
     <Screen scroll>
       <FadeIn>
 
-        {/* =====================================
-            HEADER
-        ===================================== */}
+        {/* HEADER */}
 
-        <View style={styles.header}>
-
-          <View style={styles.headerText}>
-
-            <View style={styles.adminLabel}>
-
+        <View
+          style={styles.header}
+        >
+          <View
+            style={styles.headerText}
+          >
+            <View
+              style={styles.adminLabel}
+            >
               <View
                 style={styles.adminDot}
               />
 
               <Text
-                style={styles.adminLabelText}
+                style={
+                  styles.adminLabelText
+                }
               >
                 VEDA ADMIN
               </Text>
-
             </View>
 
-            <Text style={styles.title}>
+            <Text
+              style={styles.title}
+            >
               Dashboard
             </Text>
 
-            <Text style={styles.subtitle}>
-              Welcome back, {adminName}. Manage
-              your healthcare network from one place.
+            <Text
+              style={styles.subtitle}
+            >
+              Welcome back, {adminName}.
+              Manage your healthcare
+              network from one place.
             </Text>
-
           </View>
 
-          <View style={styles.avatar}>
-
-            <Text style={styles.avatarText}>
+          <View
+            style={styles.avatar}
+          >
+            <Text
+              style={styles.avatarText}
+            >
               {adminName
                 ?.charAt(0)
-                ?.toUpperCase() || 'A'}
+                ?.toUpperCase() ||
+                'A'}
             </Text>
-
           </View>
-
-        </View>
-
-        {/* =====================================
-            SYSTEM STATUS
-        ===================================== */}
-
-        <View style={styles.systemBar}>
-
-          <View style={styles.systemLeft}>
-
-            <View
-              style={styles.onlineDot}
-            />
-
-            <Text
-              style={styles.systemText}
-            >
-              Veda system operational
-            </Text>
-
-          </View>
-
-          <Text
-            style={styles.secureText}
-          >
-            SECURE
-          </Text>
-
         </View>
 
         {loading ? (
-
           <Loading
             text="Loading admin dashboard..."
           />
-
         ) : (
-
           <>
 
-            {/* =================================
-                KPI HEADER
-            ================================= */}
+            {/* =====================================================
+                NOTIFICATIONS
+            ===================================================== */}
 
-            <View style={styles.sectionTop}>
+            {(notifications.length > 0 ||
+              pendingPaymentDoctors.length > 0 ||
+              pendingAccessRequests.length > 0) && (
+              <>
+                <View
+                  style={styles.sectionHeader}
+                >
+                  <View>
+                    <Text
+                      style={
+                        styles.sectionEyebrow
+                      }
+                    >
+                      ATTENTION
+                    </Text>
 
+                    <Text
+                      style={
+                        styles.sectionTitle
+                      }
+                    >
+                      Notifications
+                    </Text>
+                  </View>
+
+                  <View
+                    style={
+                      styles.alertBadge
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.alertBadgeText
+                      }
+                    >
+                      {
+                        notifications.length +
+                        pendingPaymentDoctors.length +
+                        pendingAccessRequests.length
+                      }
+                    </Text>
+                  </View>
+                </View>
+
+                <Card>
+
+                  {pendingPaymentDoctors
+                    .slice(0, 5)
+                    .map((item) => (
+                      <NotificationRow
+                        key={
+                          `payment-${item._id}`
+                        }
+                        type="payment"
+                        title="Payment verification required"
+                        text={`${item.name || 'Doctor'} has reached the payment period.`}
+                      />
+                    ))}
+
+                  {pendingAccessRequests
+                    .slice(0, 5)
+                    .map((item) => (
+                      <NotificationRow
+                        key={
+                          `access-${item._id}`
+                        }
+                        type="access"
+                        title="Doctor access requested"
+                        text={`${item.name || item.email || 'Doctor'} is requesting access.`}
+                      />
+                    ))}
+
+                  {notifications
+                    .slice(0, 5)
+                    .map(
+                      (
+                        item,
+                        index
+                      ) => (
+                        <NotificationRow
+                          key={
+                            item._id ||
+                            `notification-${index}`
+                          }
+                          type={
+                            item.type?.startsWith(
+                              'payment_'
+                            )
+                              ? 'payment'
+                              : item.type ===
+                                  'access_request'
+                                ? 'access'
+                                : 'info'
+                          }
+                          title={
+                            item.title ||
+                            item.message ||
+                            'Veda notification'
+                          }
+                          text={
+                            item.message ||
+                            item.description ||
+                            'New administrator notification.'
+                          }
+                          createdAt={item.createdAt}
+                          onDelete={() =>
+                            deleteNotification(item)
+                          }
+                        />
+                      )
+                    )}
+
+                </Card>
+              </>
+            )}
+
+            {/* OVERVIEW */}
+
+            <View
+              style={styles.sectionTop}
+            >
               <View>
-
                 <Text
-                  style={styles.sectionEyebrow}
+                  style={
+                    styles.sectionEyebrow
+                  }
                 >
                   OVERVIEW
                 </Text>
 
                 <Text
-                  style={styles.sectionTitle}
+                  style={
+                    styles.sectionTitle
+                  }
                 >
-                  Network performance
+                  Practice overview
                 </Text>
-
               </View>
-
-              <View
-                style={styles.liveBadge}
-              >
-
-                <View
-                  style={styles.liveDot}
-                />
-
-                <Text
-                  style={styles.liveText}
-                >
-                  LIVE
-                </Text>
-
-              </View>
-
             </View>
 
-            {/* =================================
-                KPI CARDS
-            ================================= */}
+            {/* KPI */}
 
-            <View style={styles.kpiGrid}>
-
+            <View
+              style={styles.kpiGrid}
+            >
               <KpiCard
                 number={
-                  overview?.totalDoctors || 0
+                  overview?.totalDoctors ||
+                  doctors.length ||
+                  0
                 }
                 label="Total doctors"
                 smallLabel="REGISTERED"
                 type="blue"
+                onPress={() =>
+                  setSelectedDoctorGroup('all')
+                }
               />
 
               <KpiCard
                 number={
-                  overview?.activeDoctors || 0
+                  overview?.activeDoctors ??
+                  doctors.filter(
+                    (item) =>
+                      getAccessActive(
+                        item
+                      )
+                  ).length
                 }
                 label="Active doctors"
                 smallLabel="WITH ACCESS"
                 type="green"
+                onPress={() =>
+                  setSelectedDoctorGroup('active')
+                }
               />
 
               <KpiCard
                 number={
-                  overview?.pendingRequests || 0
+                  pendingPaymentDoctors.length
                 }
-                label="Pending requests"
-                smallLabel="REQUIRES REVIEW"
+                label="Payment due"
+                smallLabel="AWAITING PAYMENT"
                 type="orange"
+                onPress={() =>
+                  setSelectedDoctorGroup('paymentsDue')
+                }
               />
 
               <KpiCard
-                number={
-                  overview?.totalPatients || 0
-                }
-                label="Total patients"
-                smallLabel="ACROSS NETWORK"
+                number={pendingAccessRequests.length}
+                label="Access requests"
+                smallLabel="REQUIRES REVIEW"
                 type="purple"
-              />
-
-            </View>
-
-            {/* =================================
-                SECONDARY STATS
-            ================================= */}
-
-            <View
-              style={styles.secondaryRow}
-            >
-
-              <MiniStat
-                label="Access removed"
-                value={
-                  overview?.inactiveDoctors || 0
+                onPress={() =>
+                  setSelectedDoctorGroup('accessRequests')
                 }
               />
-
-              <MiniStat
-                label="Total visits"
-                value={
-                  overview?.totalVisits || 0
-                }
-              />
-
             </View>
 
-            {/* =================================
-                APPROVAL SECTION
-            ================================= */}
+            {selectedDoctorGroup ? (
+              <View style={styles.doctorTargetList}>
+                <View style={styles.doctorTargetHeader}>
+                  <Text style={styles.doctorTargetTitle}>
+                    {doctorGroupLabels[selectedDoctorGroup]}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Close doctor list"
+                    onPress={() => setSelectedDoctorGroup(null)}
+                  >
+                    <Text style={styles.doctorTargetClose}>×</Text>
+                  </Pressable>
+                </View>
+
+                {selectedGroupDoctors.length ? (
+                  selectedGroupDoctors.map((item) => (
+                    <Pressable
+                      key={item._id}
+                      accessibilityRole="button"
+                      onPress={() => openDoctorDashboard(item)}
+                      style={styles.doctorTargetRow}
+                    >
+                      <View style={styles.doctorTargetIdentity}>
+                        <Text style={styles.doctorTargetName}>
+                          {item.name || 'Doctor'}
+                        </Text>
+                        <Text style={styles.doctorTargetEmail}>
+                          {item.email || ''}
+                        </Text>
+                      </View>
+                      <Text style={styles.doctorTargetArrow}>›</Text>
+                    </Pressable>
+                  ))
+                ) : (
+                  <Text style={styles.doctorTargetEmpty}>
+                    No doctors in this group.
+                  </Text>
+                )}
+              </View>
+            ) : null}
+
+            <Pressable
+              accessibilityRole="button"
+              onPress={() =>
+                navigation.navigate('AdminRevenue')
+              }
+              style={styles.revenueLink}
+            >
+              <View style={styles.revenueLinkText}>
+                <Text style={styles.revenueLinkTitle}>
+                  Revenue dashboard
+                </Text>
+                <Text style={styles.revenueLinkSubtitle}>
+                  Monthly totals and payment records
+                </Text>
+              </View>
+              <Text style={styles.revenueLinkArrow}>›</Text>
+            </Pressable>
+
+            {/* REGISTRATION APPROVALS */}
 
             <View
-              style={styles.sectionHeader}
+              style={
+                styles.sectionHeader
+              }
             >
-
               <View>
-
                 <Text
-                  style={styles.sectionEyebrow}
+                  style={
+                    styles.sectionEyebrow
+                  }
                 >
                   ACTION REQUIRED
                 </Text>
 
                 <Text
-                  style={styles.sectionTitle}
+                  style={
+                    styles.sectionTitle
+                  }
                 >
                   Doctor approvals
                 </Text>
-
               </View>
 
               <View
                 style={styles.numberBadge}
               >
-
                 <Text
-                  style={styles.numberBadgeText}
+                  style={
+                    styles.numberBadgeText
+                  }
                 >
                   {requests.length}
                 </Text>
-
               </View>
-
             </View>
 
             <Card>
 
               {requests.length === 0 ? (
-
                 <EmptyState
                   title="No pending approvals"
-                  text="All doctor access requests have been reviewed."
+                  text="All doctor registration requests have been reviewed."
                   success
                 />
-
               ) : (
-
                 requests.map(
-                  (request, index) => (
-
+                  (
+                    request,
+                    index
+                  ) => (
                     <RequestCard
-                      key={request._id}
-                      request={request}
+                      key={
+                        request._id
+                      }
+                      request={
+                        request
+                      }
                       index={index}
-                      total={requests.length}
+                      total={
+                        requests.length
+                      }
                       actionLoading={
                         actionLoading
                       }
@@ -577,17 +1735,13 @@ export default function AdminDashboard({ navigation }) {
                         )
                       }
                     />
-
                   )
                 )
-
               )}
 
             </Card>
 
-            {/* =================================
-                DOCTOR MANAGEMENT
-            ================================= */}
+            {/* DOCTOR DIRECTORY */}
 
             <View
               style={[
@@ -595,21 +1749,22 @@ export default function AdminDashboard({ navigation }) {
                 styles.doctorSectionHeader,
               ]}
             >
-
               <View>
-
                 <Text
-                  style={styles.sectionEyebrow}
+                  style={
+                    styles.sectionEyebrow
+                  }
                 >
                   MANAGEMENT
                 </Text>
 
                 <Text
-                  style={styles.sectionTitle}
+                  style={
+                    styles.sectionTitle
+                  }
                 >
                   Doctor directory
                 </Text>
-
               </View>
 
               <Text
@@ -617,115 +1772,49 @@ export default function AdminDashboard({ navigation }) {
               >
                 {doctors.length} doctors
               </Text>
-
             </View>
 
             <Card>
 
               {doctors.length === 0 ? (
-
                 <EmptyState
                   title="No doctors registered"
                   text="Approved doctors will appear here."
                 />
-
               ) : (
-
-                doctors.map(
-                  (doctorItem, index) => {
-
-                    const isConfirming =
-                      deleteDoctorId ===
-                      doctorItem._id;
-
-                    const isDeleting =
-                      deletingDoctorId ===
-                      doctorItem._id;
-
-                    return (
-                      <DoctorCard
-                        key={doctorItem._id}
-                        doctorItem={doctorItem}
-                        index={index}
-                        total={doctors.length}
-                        actionLoading={
-                          actionLoading
-                        }
-                        isConfirming={
-                          isConfirming
-                        }
-                        isDeleting={
-                          isDeleting
-                        }
-                        deleteError={
-                          deleteError
-                        }
-
-                        /*
-                          IMPORTANT:
-                          Analytics & Profile
-                          opens AdminDoctorDashboard
-                        */
-                        onView={() =>
-                          openDoctorDashboard(
-                            doctorItem
-                          )
-                        }
-
-                        onAccess={() =>
-                          access(
-                            doctorItem
-                          )
-                        }
-
-                        onDelete={() =>
-                          openDeleteConfirmation(
-                            doctorItem
-                          )
-                        }
-
-                        onCancelDelete={
-                          cancelDelete
-                        }
-
-                        onConfirmDelete={() =>
-                          deleteDoctor(
-                            doctorItem
-                          )
-                        }
-                      />
-                    );
-                  }
-                )
-
+                doctors.map((doctorItem) => (
+                  <DoctorDirectoryRow
+                    key={doctorItem._id}
+                    doctor={doctorItem}
+                    onPress={() =>
+                      openDoctorDashboard(doctorItem)
+                    }
+                  />
+                ))
               )}
 
             </Card>
 
-            {/* =================================
-                ADMIN INFO
-            ================================= */}
+            {/* ADMIN INFO */}
 
             <View
               style={styles.adminInfo}
             >
-
               <View
                 style={styles.infoIcon}
               >
-
                 <Text
-                  style={styles.infoIconText}
+                  style={
+                    styles.infoIconText
+                  }
                 >
                   i
                 </Text>
-
               </View>
 
               <View
                 style={styles.infoContent}
               >
-
                 <Text
                   style={styles.infoTitle}
                 >
@@ -735,1390 +1824,126 @@ export default function AdminDashboard({ navigation }) {
                 <Text
                   style={styles.infoText}
                 >
-                  Use this console to review doctors,
-                  control access and monitor your
-                  healthcare network.
+                  Payment verification and access
+                  control are separate. Removing
+                  access does not delete the doctor's
+                  account or clinical records.
                 </Text>
-
               </View>
-
             </View>
 
           </>
         )}
 
-        {/* =====================================
-            SIGN OUT
-        ===================================== */}
+        {/* SIGN OUT */}
 
         <View
           style={styles.signOut}
         >
-
           <Button
             title="Sign out"
             secondary
             onPress={logout}
           />
-
         </View>
 
       </FadeIn>
+
+      <Modal
+        visible={
+          paymentProofLoading ||
+          Boolean(paymentProofPreview)
+        }
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setPaymentProofPreview(null);
+          setPaymentProofLoading(false);
+        }}
+      >
+        <View style={styles.proofOverlay}>
+          <View style={styles.proofModal}>
+            <View style={styles.proofHeader}>
+              <View style={styles.proofHeaderText}>
+                <Text style={styles.proofEyebrow}>
+                  PAYMENT REVIEW
+                </Text>
+                <Text style={styles.proofTitle}>
+                  {paymentProofPreview?.doctorName ||
+                    'Loading screenshot'}
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close payment screenshot"
+                onPress={() =>
+                  setPaymentProofPreview(null)
+                }
+                style={styles.proofClose}
+              >
+                <Text style={styles.proofCloseText}>×</Text>
+              </Pressable>
+            </View>
+
+            {paymentProofPreview ? (
+              <Image
+                source={{ uri: paymentProofPreview.uri }}
+                resizeMode="contain"
+                style={styles.proofImage}
+              />
+            ) : (
+              <Loading text="Loading payment screenshot..." />
+            )}
+
+            {paymentProofPreview?.fileName ? (
+              <Text
+                numberOfLines={1}
+                style={styles.proofFileName}
+              >
+                {paymentProofPreview.fileName}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
+      <PaymentEntryModal
+        visible={Boolean(paymentEntryDoctor)}
+        doctor={paymentEntryDoctor}
+        mode={paymentMode}
+        onModeChange={setPaymentMode}
+        amount={paymentAmount}
+        note={paymentNote}
+        transactionId={paymentTransactionId}
+        monthsPaid={paymentMonthsPaid}
+        paymentProof={paymentProof}
+        busy={actionLoading}
+        onAmountChange={setPaymentAmount}
+        onNoteChange={setPaymentNote}
+        onTransactionIdChange={setPaymentTransactionId}
+        onMonthsPaidChange={setPaymentMonthsPaid}
+        onPickProof={choosePaymentProof}
+        onRemoveProof={() => setPaymentProof(null)}
+        onCancel={() =>
+          setPaymentEntryDoctor(null)
+        }
+        onSubmit={submitPaymentPaid}
+        onMarkUnpaid={submitPaymentUnpaid}
+      />
+
+      <PaymentHistoryModal
+        doctor={paymentHistoryDoctor}
+        onClose={() =>
+          setPaymentHistoryDoctor(null)
+        }
+        onViewProof={(record) =>
+          viewPaymentHistoryProof(
+            paymentHistoryDoctor,
+            record
+          )
+        }
+      />
+
     </Screen>
   );
 }
-
-
-/* ============================================
-   KPI CARD
-============================================ */
-
-function KpiCard({
-  number,
-  label,
-  smallLabel,
-  type,
-}) {
-  let iconBackground = '#EAF3FF';
-  let iconColor = '#3478C8';
-
-  if (type === 'green') {
-    iconBackground = '#E8F8F1';
-    iconColor = '#1D9A70';
-  }
-
-  if (type === 'orange') {
-    iconBackground = '#FFF4DF';
-    iconColor = '#C48622';
-  }
-
-  if (type === 'purple') {
-    iconBackground = '#F0EBFF';
-    iconColor = '#7557C8';
-  }
-
-  return (
-    <View style={styles.kpiCard}>
-
-      <View
-        style={[
-          styles.kpiIcon,
-          {
-            backgroundColor:
-              iconBackground,
-          },
-        ]}
-      >
-
-        <Text
-          style={[
-            styles.kpiIconText,
-            {
-              color: iconColor,
-            },
-          ]}
-        >
-          {type === 'green'
-            ? '✓'
-            : type === 'orange'
-            ? '!'
-            : type === 'purple'
-            ? 'PT'
-            : 'DR'}
-        </Text>
-
-      </View>
-
-      <Text
-        style={styles.kpiNumber}
-      >
-        {number}
-      </Text>
-
-      <Text
-        style={styles.kpiLabel}
-      >
-        {label}
-      </Text>
-
-      <Text
-        style={styles.kpiSmallLabel}
-      >
-        {smallLabel}
-      </Text>
-
-    </View>
-  );
-}
-
-
-/* ============================================
-   MINI STAT
-============================================ */
-
-function MiniStat({
-  label,
-  value,
-}) {
-  return (
-    <View style={styles.miniStat}>
-
-      <Text
-        style={styles.miniValue}
-      >
-        {value}
-      </Text>
-
-      <Text
-        style={styles.miniLabel}
-      >
-        {label}
-      </Text>
-
-    </View>
-  );
-}
-
-
-/* ============================================
-   REQUEST CARD
-============================================ */
-
-function RequestCard({
-  request,
-  index,
-  total,
-  actionLoading,
-  onApprove,
-  onReject,
-}) {
-  const initial =
-    request?.name
-      ?.charAt(0)
-      ?.toUpperCase() || 'D';
-
-  return (
-    <View
-      style={[
-        styles.requestItem,
-        index === total - 1 &&
-          styles.noBorder,
-      ]}
-    >
-
-      <View
-        style={styles.requestHeader}
-      >
-
-        <View
-          style={styles.requestAvatar}
-        >
-
-          <Text
-            style={styles.requestAvatarText}
-          >
-            {initial}
-          </Text>
-
-        </View>
-
-        <View
-          style={styles.requestDetails}
-        >
-
-          <Text
-            style={styles.requestName}
-            numberOfLines={1}
-          >
-            {request.name || 'Doctor'}
-          </Text>
-
-          <Text
-            style={styles.requestEmail}
-            numberOfLines={1}
-          >
-            {request.email || 'No email'}
-          </Text>
-
-        </View>
-
-        <View
-          style={styles.pendingBadge}
-        >
-
-          <Text
-            style={styles.pendingText}
-          >
-            PENDING
-          </Text>
-
-        </View>
-
-      </View>
-
-      <View
-        style={styles.specialization}
-      >
-
-        <Text
-          style={styles.specializationLabel}
-        >
-          SPECIALIZATION
-        </Text>
-
-        <Text
-          style={styles.specializationValue}
-        >
-          {request.specialization ||
-            'Doctor'}
-        </Text>
-
-      </View>
-
-      <View
-        style={styles.requestButtons}
-      >
-
-        <View style={styles.buttonHalf}>
-
-          <Button
-            title="Approve"
-            onPress={onApprove}
-            disabled={actionLoading}
-          />
-
-        </View>
-
-        <View style={styles.buttonHalf}>
-
-          <Button
-            title="Reject"
-            danger
-            onPress={onReject}
-            disabled={actionLoading}
-          />
-
-        </View>
-
-      </View>
-
-    </View>
-  );
-}
-
-
-/* ============================================
-   DOCTOR CARD
-============================================ */
-
-function DoctorCard({
-  doctorItem,
-  index,
-  total,
-  actionLoading,
-  isConfirming,
-  isDeleting,
-  deleteError,
-  onView,
-  onAccess,
-  onDelete,
-  onCancelDelete,
-  onConfirmDelete,
-}) {
-  const initial =
-    doctorItem?.name
-      ?.charAt(0)
-      ?.toUpperCase() || 'D';
-
-  return (
-    <View
-      style={[
-        styles.doctorItem,
-        index === total - 1 &&
-          !isConfirming &&
-          styles.noBorder,
-      ]}
-    >
-
-      {/* DOCTOR HEADER */}
-
-      <View
-        style={styles.doctorHeader}
-      >
-
-        <View
-          style={styles.doctorAvatar}
-        >
-
-          <Text
-            style={styles.doctorAvatarText}
-          >
-            {initial}
-          </Text>
-
-        </View>
-
-        <View
-          style={styles.doctorDetails}
-        >
-
-          <Text
-            style={styles.doctorName}
-            numberOfLines={1}
-          >
-            {doctorItem.name ||
-              'Doctor'}
-          </Text>
-
-          <Text
-            style={styles.doctorEmail}
-            numberOfLines={1}
-          >
-            {doctorItem.email ||
-              'No email'}
-          </Text>
-
-        </View>
-
-        <View
-          style={[
-            styles.statusBadge,
-            doctorItem.active
-              ? styles.activeBadge
-              : styles.removedBadge,
-          ]}
-        >
-
-          <View
-            style={[
-              styles.statusDot,
-              doctorItem.active
-                ? styles.activeDot
-                : styles.removedDot,
-            ]}
-          />
-
-          <Text
-            style={[
-              styles.statusText,
-              doctorItem.active
-                ? styles.activeText
-                : styles.removedText,
-            ]}
-          >
-            {doctorItem.active
-              ? 'ACTIVE'
-              : 'REMOVED'}
-          </Text>
-
-        </View>
-
-      </View>
-
-      {/* =================================
-          ANALYTICS & PROFILE
-          
-          NOW OPENS:
-          AdminDoctorDashboard
-      ================================= */}
-
-      <Pressable
-        onPress={onView}
-        disabled={actionLoading}
-        style={({ pressed }) => [
-          styles.analyticsButton,
-          pressed &&
-            styles.pressed,
-        ]}
-      >
-
-        <View
-          style={styles.analyticsIcon}
-        >
-
-          <Text
-            style={styles.analyticsIconText}
-          >
-            ↗
-          </Text>
-
-        </View>
-
-        <View
-          style={styles.analyticsText}
-        >
-
-          <Text
-            style={styles.analyticsTitle}
-          >
-            Analytics & profile
-          </Text>
-
-          <Text
-            style={styles.analyticsSubtitle}
-          >
-            View activity and edit doctor profile
-          </Text>
-
-        </View>
-
-        <Text
-          style={styles.arrow}
-        >
-          ›
-        </Text>
-
-      </Pressable>
-
-      {/* =================================
-          ACTIONS
-      ================================= */}
-
-      {!isConfirming ? (
-
-        <View
-          style={styles.doctorActions}
-        >
-
-          <View
-            style={styles.actionButton}
-          >
-
-            <Button
-              title={
-                doctorItem.active
-                  ? 'Remove access'
-                  : 'Restore access'
-              }
-              secondary
-              onPress={onAccess}
-              disabled={actionLoading}
-            />
-
-          </View>
-
-          <View
-            style={styles.actionButton}
-          >
-
-            <Button
-              title="Delete"
-              danger
-              onPress={onDelete}
-              disabled={actionLoading}
-            />
-
-          </View>
-
-        </View>
-
-      ) : (
-
-        /* DELETE CONFIRMATION */
-
-        <View
-          style={styles.deleteBox}
-        >
-
-          <View
-            style={styles.deleteHeader}
-          >
-
-            <View
-              style={styles.warningIcon}
-            >
-
-              <Text
-                style={styles.warningText}
-              >
-                !
-              </Text>
-
-            </View>
-
-            <View
-              style={styles.deleteHeaderText}
-            >
-
-              <Text
-                style={styles.deleteTitle}
-              >
-                Delete doctor?
-              </Text>
-
-              <Text
-                style={styles.deleteSubtitle}
-              >
-                This action is permanent.
-              </Text>
-
-            </View>
-
-          </View>
-
-          <Text
-            style={styles.deleteDescription}
-          >
-            The doctor, associated patients,
-            visits and prescriptions will be
-            permanently removed.
-          </Text>
-
-          <View
-            style={styles.deleteActions}
-          >
-
-            <View
-              style={styles.actionButton}
-            >
-
-              <Button
-                title="Cancel"
-                secondary
-                disabled={
-                  isDeleting ||
-                  actionLoading
-                }
-                onPress={onCancelDelete}
-              />
-
-            </View>
-
-            <View
-              style={styles.actionButton}
-            >
-
-              <Button
-                title={
-                  isDeleting
-                    ? 'Deleting...'
-                    : 'Delete permanently'
-                }
-                danger
-                disabled={
-                  isDeleting ||
-                  actionLoading
-                }
-                onPress={
-                  onConfirmDelete
-                }
-              />
-
-            </View>
-
-          </View>
-
-          {isDeleting ? (
-
-            <Text
-              style={styles.deleteProgress}
-            >
-              Removing doctor and related
-              records...
-            </Text>
-
-          ) : null}
-
-          {deleteError ? (
-
-            <Text
-              style={styles.deleteError}
-            >
-              {deleteError}
-            </Text>
-
-          ) : null}
-
-        </View>
-
-      )}
-
-    </View>
-  );
-}
-
-
-/* ============================================
-   EMPTY STATE
-============================================ */
-
-function EmptyState({
-  title,
-  text,
-  success,
-}) {
-  return (
-    <View
-      style={styles.emptyState}
-    >
-
-      <View
-        style={[
-          styles.emptyIcon,
-          success &&
-            styles.emptyIconSuccess,
-        ]}
-      >
-
-        <Text
-          style={[
-            styles.emptyIconText,
-            success &&
-              styles.emptyIconTextSuccess,
-          ]}
-        >
-          {success ? '✓' : '—'}
-        </Text>
-
-      </View>
-
-      <Text
-        style={styles.emptyTitle}
-      >
-        {title}
-      </Text>
-
-      <Text
-        style={styles.emptyText}
-      >
-        {text}
-      </Text>
-
-    </View>
-  );
-}
-
-
-/* ============================================
-   STYLES
-============================================ */
-
-const styles = StyleSheet.create({
-
-  /* HEADER */
-
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 8,
-    paddingBottom: 20,
-  },
-
-  headerText: {
-    flex: 1,
-    paddingRight: 15,
-  },
-
-  adminLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    backgroundColor: '#EAF7FA',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 9,
-  },
-
-  adminDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: colors.cyan,
-    marginRight: 7,
-  },
-
-  adminLabelText: {
-    color: colors.cyan,
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-  },
-
-  title: {
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '900',
-    color: colors.ink,
-  },
-
-  subtitle: {
-    fontSize: 12.5,
-    lineHeight: 18,
-    color: colors.muted,
-    marginTop: 5,
-    maxWidth: 400,
-  },
-
-  avatar: {
-    width: 52,
-    height: 52,
-    borderRadius: 17,
-    backgroundColor: '#102A38',
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 4,
-  },
-
-  avatarText: {
-    color: '#FFFFFF',
-    fontSize: 19,
-    fontWeight: '900',
-  },
-
-  /* SYSTEM BAR */
-
-  systemBar: {
-    minHeight: 43,
-    borderWidth: 1,
-    borderColor: '#E5ECEF',
-    backgroundColor: '#F8FBFC',
-    borderRadius: 13,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 13,
-    marginBottom: 23,
-  },
-
-  systemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  onlineDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: '#20B486',
-    marginRight: 8,
-  },
-
-  systemText: {
-    color: '#63747E',
-    fontSize: 10.5,
-    fontWeight: '700',
-  },
-
-  secureText: {
-    color: '#1C9B73',
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  /* SECTION */
-
-  sectionTop: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginBottom: 11,
-  },
-
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    marginTop: 25,
-    marginBottom: 11,
-  },
-
-  doctorSectionHeader: {
-    marginTop: 27,
-  },
-
-  sectionEyebrow: {
-    color: colors.cyan,
-    fontSize: 8,
-    fontWeight: '900',
-    letterSpacing: 1.5,
-    marginBottom: 3,
-  },
-
-  sectionTitle: {
-    color: colors.ink,
-    fontSize: 19,
-    fontWeight: '900',
-  },
-
-  liveBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EAF8F2',
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 7,
-    marginBottom: 2,
-  },
-
-  liveDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: '#20B486',
-    marginRight: 5,
-  },
-
-  liveText: {
-    color: '#198C68',
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-  },
-
-  /* KPI */
-
-  kpiGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginHorizontal: -4,
-  },
-
-  kpiCard: {
-    width: '50%',
-    paddingHorizontal: 4,
-    marginBottom: 8,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: '#E6EDF1',
-    padding: 14,
-    minHeight: 128,
-    elevation: 1,
-  },
-
-  kpiIcon: {
-    width: 33,
-    height: 33,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-
-  kpiIconText: {
-    fontSize: 9,
-    fontWeight: '900',
-  },
-
-  kpiNumber: {
-    color: colors.ink,
-    fontSize: 26,
-    lineHeight: 30,
-    fontWeight: '900',
-  },
-
-  kpiLabel: {
-    color: colors.ink,
-    fontSize: 11,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-
-  kpiSmallLabel: {
-    color: '#98A5AD',
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 0.8,
-    marginTop: 4,
-  },
-
-  /* MINI STATS */
-
-  secondaryRow: {
-    flexDirection: 'row',
-    marginTop: 1,
-  },
-
-  miniStat: {
-    flex: 1,
-    backgroundColor: '#F7FAFC',
-    borderWidth: 1,
-    borderColor: '#E7EDF1',
-    borderRadius: 13,
-    paddingVertical: 11,
-    paddingHorizontal: 13,
-    marginHorizontal: 4,
-  },
-
-  miniValue: {
-    color: colors.ink,
-    fontSize: 18,
-    fontWeight: '900',
-  },
-
-  miniLabel: {
-    color: colors.muted,
-    fontSize: 9,
-    fontWeight: '700',
-    marginTop: 2,
-  },
-
-  /* BADGE */
-
-  numberBadge: {
-    width: 31,
-    height: 31,
-    borderRadius: 10,
-    backgroundColor: '#FFF4DF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 1,
-  },
-
-  numberBadgeText: {
-    color: '#B87816',
-    fontSize: 11,
-    fontWeight: '900',
-  },
-
-  doctorCount: {
-    color: colors.muted,
-    fontSize: 9.5,
-    fontWeight: '800',
-    marginBottom: 3,
-  },
-
-  /* REQUEST */
-
-  requestItem: {
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EDF2F5',
-  },
-
-  requestHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  requestAvatar: {
-    width: 43,
-    height: 43,
-    borderRadius: 13,
-    backgroundColor: '#EAF7FA',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  requestAvatarText: {
-    color: colors.cyan,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-
-  requestDetails: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  requestName: {
-    color: colors.ink,
-    fontSize: 13.5,
-    fontWeight: '900',
-  },
-
-  requestEmail: {
-    color: colors.muted,
-    fontSize: 10,
-    marginTop: 3,
-  },
-
-  pendingBadge: {
-    backgroundColor: '#FFF4DF',
-    borderRadius: 7,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    marginLeft: 6,
-  },
-
-  pendingText: {
-    color: '#B87816',
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-  },
-
-  specialization: {
-    backgroundColor: '#F7FAFC',
-    borderRadius: 10,
-    paddingHorizontal: 11,
-    paddingVertical: 9,
-    marginTop: 12,
-  },
-
-  specializationLabel: {
-    color: '#98A5AD',
-    fontSize: 7,
-    fontWeight: '900',
-    letterSpacing: 1,
-  },
-
-  specializationValue: {
-    color: colors.ink,
-    fontSize: 11,
-    fontWeight: '800',
-    marginTop: 2,
-  },
-
-  requestButtons: {
-    flexDirection: 'row',
-    marginTop: 11,
-  },
-
-  buttonHalf: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
-
-  /* DOCTOR */
-
-  doctorItem: {
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#EDF2F5',
-  },
-
-  doctorHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  doctorAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: '#102A38',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  doctorAvatarText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '900',
-  },
-
-  doctorDetails: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  doctorName: {
-    color: colors.ink,
-    fontSize: 13.5,
-    fontWeight: '900',
-  },
-
-  doctorEmail: {
-    color: colors.muted,
-    fontSize: 10,
-    marginTop: 3,
-  },
-
-  statusBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    borderRadius: 7,
-    paddingHorizontal: 7,
-    paddingVertical: 5,
-    marginLeft: 5,
-  },
-
-  activeBadge: {
-    backgroundColor: '#E8F8F1',
-  },
-
-  removedBadge: {
-    backgroundColor: '#F1F3F5',
-  },
-
-  statusDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-    marginRight: 5,
-  },
-
-  activeDot: {
-    backgroundColor: '#20A77A',
-  },
-
-  removedDot: {
-    backgroundColor: '#87939A',
-  },
-
-  statusText: {
-    fontSize: 6.5,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-
-  activeText: {
-    color: '#188A67',
-  },
-
-  removedText: {
-    color: '#6D777D',
-  },
-
-  /* ANALYTICS BUTTON */
-
-  analyticsButton: {
-    minHeight: 58,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5FAFC',
-    borderWidth: 1,
-    borderColor: '#E2ECF0',
-    borderRadius: 14,
-    paddingHorizontal: 12,
-    marginTop: 13,
-  },
-
-  analyticsIcon: {
-    width: 33,
-    height: 33,
-    borderRadius: 10,
-    backgroundColor: '#E7F7FA',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  analyticsIconText: {
-    color: colors.cyan,
-    fontSize: 16,
-    fontWeight: '900',
-  },
-
-  analyticsText: {
-    flex: 1,
-  },
-
-  analyticsTitle: {
-    color: colors.ink,
-    fontSize: 11.5,
-    fontWeight: '900',
-  },
-
-  analyticsSubtitle: {
-    color: colors.muted,
-    fontSize: 9,
-    marginTop: 2,
-  },
-
-  arrow: {
-    color: colors.cyan,
-    fontSize: 24,
-    fontWeight: '700',
-    marginLeft: 7,
-  },
-
-  pressed: {
-    opacity: 0.72,
-    transform: [
-      {
-        scale: 0.985,
-      },
-    ],
-  },
-
-  /* DOCTOR ACTIONS */
-
-  doctorActions: {
-    flexDirection: 'row',
-    marginTop: 9,
-  },
-
-  actionButton: {
-    flex: 1,
-    marginHorizontal: 4,
-  },
-
-  /* DELETE */
-
-  deleteBox: {
-    backgroundColor: '#FFF8F8',
-    borderWidth: 1,
-    borderColor: '#F1D0D5',
-    borderRadius: 15,
-    padding: 13,
-    marginTop: 10,
-  },
-
-  deleteHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-
-  warningIcon: {
-    width: 35,
-    height: 35,
-    borderRadius: 11,
-    backgroundColor: '#FCE7EA',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  warningText: {
-    color: colors.danger,
-    fontSize: 17,
-    fontWeight: '900',
-  },
-
-  deleteHeaderText: {
-    flex: 1,
-  },
-
-  deleteTitle: {
-    color: '#8E2633',
-    fontSize: 12.5,
-    fontWeight: '900',
-  },
-
-  deleteSubtitle: {
-    color: '#A56B73',
-    fontSize: 9.5,
-    marginTop: 2,
-  },
-
-  deleteDescription: {
-    color: '#6D5055',
-    fontSize: 10.5,
-    lineHeight: 16,
-    marginTop: 10,
-  },
-
-  deleteActions: {
-    flexDirection: 'row',
-    marginTop: 10,
-  },
-
-  deleteProgress: {
-    color: colors.danger,
-    fontSize: 10,
-    fontWeight: '700',
-    marginTop: 8,
-  },
-
-  deleteError: {
-    color: colors.danger,
-    fontSize: 10,
-    lineHeight: 15,
-    marginTop: 8,
-  },
-
-  /* EMPTY */
-
-  emptyState: {
-    alignItems: 'center',
-    paddingVertical: 30,
-    paddingHorizontal: 20,
-  },
-
-  emptyIcon: {
-    width: 45,
-    height: 45,
-    borderRadius: 14,
-    backgroundColor: '#F1F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-
-  emptyIconSuccess: {
-    backgroundColor: '#E8F8F1',
-  },
-
-  emptyIconText: {
-    color: '#9AA6AD',
-    fontSize: 16,
-    fontWeight: '900',
-  },
-
-  emptyIconTextSuccess: {
-    color: '#20A77A',
-  },
-
-  emptyTitle: {
-    color: colors.ink,
-    fontSize: 13.5,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-
-  emptyText: {
-    color: colors.muted,
-    fontSize: 10.5,
-    lineHeight: 16,
-    textAlign: 'center',
-    marginTop: 4,
-    maxWidth: 300,
-  },
-
-  /* ADMIN INFO */
-
-  adminInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F6FAFC',
-    borderWidth: 1,
-    borderColor: '#E4EDF1',
-    borderRadius: 15,
-    padding: 13,
-    marginTop: 20,
-  },
-
-  infoIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 11,
-    backgroundColor: '#E7F7FA',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 10,
-  },
-
-  infoIconText: {
-    color: colors.cyan,
-    fontSize: 16,
-    fontWeight: '900',
-  },
-
-  infoContent: {
-    flex: 1,
-  },
-
-  infoTitle: {
-    color: colors.ink,
-    fontSize: 11,
-    fontWeight: '900',
-  },
-
-  infoText: {
-    color: colors.muted,
-    fontSize: 9.5,
-    lineHeight: 15,
-    marginTop: 2,
-  },
-
-  /* SIGN OUT */
-
-  signOut: {
-    marginTop: 22,
-    marginBottom: 8,
-  },
-
-  /* COMMON */
-
-  noBorder: {
-    borderBottomWidth: 0,
-  },
-
-});

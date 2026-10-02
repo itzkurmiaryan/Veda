@@ -11,6 +11,7 @@ import {
 import { api } from '../api/api';
 import { Input, Button, Card } from '../components/UI';
 import AppHeader from '../components/AppHeader';
+import AccessRequiredModal from '../components/AccessRequiredModal';
 
 export default function CreateVisit({ route, navigation }) {
   const p = route.params.patient;
@@ -38,6 +39,8 @@ export default function CreateVisit({ route, navigation }) {
 
   const [advice, setAdvice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [accessPromptVisible, setAccessPromptVisible] =
+    useState(false);
 
   const setVt = (k, x) => {
     setV((a) => ({
@@ -94,6 +97,14 @@ export default function CreateVisit({ route, navigation }) {
         id: r.data.data._id,
       });
     } catch (e) {
+      if (
+        e.response?.data?.code ===
+        'ACCESS_DISABLED'
+      ) {
+        setAccessPromptVisible(true);
+        return;
+      }
+
       Alert.alert(
         'Save failed',
         e.response?.data?.message || e.message
@@ -353,6 +364,10 @@ export default function CreateVisit({ route, navigation }) {
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
+      <AccessRequiredModal
+        visible={accessPromptVisible}
+        onClose={() => setAccessPromptVisible(false)}
+      />
     </View>
   );
 }

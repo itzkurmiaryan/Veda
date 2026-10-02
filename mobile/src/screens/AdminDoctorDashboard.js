@@ -2,11 +2,16 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Image,
+  Modal,
   Pressable,
+  Platform,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+
+import * as ImageManipulator from 'expo-image-manipulator';
+import * as ImagePicker from 'expo-image-picker';
 
 import { api } from '../api/api';
 
@@ -19,7 +24,14 @@ import {
   colors,
 } from '../components/UI';
 
+import PaymentSummaryCard from '../components/PaymentSummaryCard';
+
 import { useAuth } from '../context/AuthContext';
+import {
+  PaymentEntryModal,
+  PaymentHistoryModal,
+} from './AdminDashboardComponents';
+import adminStyles from './AdminDashboardStyles';
 
 
 /* =========================================================
@@ -208,12 +220,23 @@ export default function AdminDoctorDashboard({
   const [doctor, setDoctor] = useState(
     selectedDoctor || null
   );
+  const [accessRequest, setAccessRequest] = useState(null);
+  const [detailTab, setDetailTab] = useState('overview');
 
   const [analytics, setAnalytics] = useState(null);
 
   const [loading, setLoading] = useState(true);
 
   const [error, setError] = useState('');
+  const [paymentEntryOpen, setPaymentEntryOpen] = useState(false);
+  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
+  const [paymentMode, setPaymentMode] = useState(null);
+  const [paymentAmount, setPaymentAmount] = useState('');
+  const [paymentMonthsPaid, setPaymentMonthsPaid] = useState('1');
+  const [paymentTransactionId, setPaymentTransactionId] = useState('');
+  const [paymentNote, setPaymentNote] = useState('');
+  const [paymentProof, setPaymentProof] = useState(null);
+  const [proofPreview, setProofPreview] = useState(null);
 
   const doctorId =
     selectedDoctor?._id ||
@@ -236,10 +259,16 @@ export default function AdminDoctorDashboard({
         setError('');
         setLoading(true);
 
-        const response =
-          await api.get(
-            `/analytics/doctors/${doctorId}`
-          );
+        const [response, doctorResponse, accessResponse] =
+          await Promise.all([
+            api.get(
+              `/analytics/doctors/${doctorId}`
+            ),
+            api.get(
+              `/admin/doctors/${doctorId}`
+            ),
+            api.get('/admin/access-requests'),
+          ]);
 
         const payload = response?.data;
 
@@ -251,9 +280,22 @@ export default function AdminDoctorDashboard({
         }
 
         setDoctor(
+          doctorResponse?.data?.data ||
           payload.doctor ||
           selectedDoctor ||
           null
+        );
+
+        const requests =
+          accessResponse?.data?.data || [];
+        setAccessRequest(
+          requests.find((request) => {
+            const requestDoctorId =
+              typeof request.doctorId === 'object'
+                ? request.doctorId?._id
+                : request.doctorId;
+            return String(requestDoctorId) === String(doctorId);
+          }) || null
         );
 
         setAnalytics(
@@ -350,6 +392,290 @@ export default function AdminDoctorDashboard({
       1
     );
   }, [monthlyData]);
+
+  const showPaymentMessage = (title, message) => {
+    if (Platform.OS === 'web') {
+      globalThis.alert(`${title}\n\n${message}`);
+    } else {
+      Alert.alert(title, message);
+    }
+  };
+
+  const openPaymentEntry = () => {
+    setPaymentMode(null);
+    setPaymentAmount('');
+    setPaymentMonthsPaid('1');
+    setPaymentTransactionId('');
+    setPaymentNote('');
+    setPaymentProof(null);
+    setPaymentEntryOpen(true);
+  };
+
+  const choosePaymentProof = async () => {
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        throw new Error('Allow photo access to attach a screenshot.');
+      }
+
+      const result =
+        await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.45,
+        });
+      if (result.canceled) return;
+
+      const image = result.assets?.[0];
+      if (!image?.uri) {
+        throw new Error('Select a valid screenshot.');
+      }
+
+      const resizeAction =
+        image.width >= image.height
+          ? { resize: { width: 1000 } }
+          : { resize: { height: 1000 } };
+      const compressed =
+        await ImageManipulator.manipulateAsync(
+          image.uri,
+          [resizeAction],
+          {
+            compress: 0.4,
+            format: ImageManipulator.SaveFormat.JPEG,
+            base64: true,
+          }
+        );
+
+      if (
+        !compressed.base64 ||
+        compressed.base64.length > 1400000
+      ) {
+        throw new Error('Screenshot is too large. Choose a smaller image.');
+      }
+
+      setPaymentProof({
+        data: compressed.base64,
+        contentType: 'image/jpeg',
+        fileName: image.fileName || 'payment-proof.jpg',
+        uri: compressed.uri,
+      });
+    } catch (requestError) {
+      showPaymentMessage(
+        'Unable to select screenshot',
+        requestError.message || 'Please try another image.'
+      );
+    }
+  };
+
+  const submitPaidPayment = async () => {
+    const amount = Number(paymentAmount);
+    const monthsPaid = Number(paymentMonthsPaid);
+    if (
+      !doctor?._id ||
+      !Number.isFinite(amount) ||
+      amount <= 0 ||
+      !Number.isInteger(monthsPaid) ||
+      monthsPaid < 1 ||
+      monthsPaid > 24
+    ) {
+      return;
+    }
+
+    try {
+      startAction('Saving payment...', 'Recording the doctor payment details.');
+      const response = await api.patch(
+        `/admin/doctors/${doctor._id}/payment`,
+        {
+          status: 'paid',
+          amount,
+          monthsPaid,
+          transactionId: paymentTransactionId.trim(),
+          note: paymentNote.trim(),
+          paymentProof: paymentProof
+            ? {
+                data: paymentProof.data,
+                contentType: paymentProof.contentType,
+                fileName: paymentProof.fileName,
+              }
+            : null,
+        }
+      );
+      const updated = response?.data?.data;
+      if (
+        updated?.paymentStatus !== 'paid' ||
+        (updated?.paymentHistory?.length || 0) <=
+          (doctor.paymentHistory?.length || 0)
+      ) {
+        throw new Error('The server did not confirm the payment record.');
+      }
+
+      setDoctor(updated);
+      setPaymentEntryOpen(false);
+      showPaymentMessage(
+        'Payment recorded',
+        `₹${amount} recorded for ${monthsPaid} month(s).`
+      );
+    } catch (requestError) {
+      showPaymentMessage(
+        'Payment update failed',
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Unable to save payment.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
+
+  const submitUnpaidStatus = async () => {
+    if (!doctor?._id) return;
+    try {
+      startAction('Updating payment...', 'Keeping the doctor marked unpaid.');
+      const response = await api.patch(
+        `/admin/doctors/${doctor._id}/payment`,
+        { status: 'unpaid' }
+      );
+      const updated = response?.data?.data;
+      if (updated?.paymentStatus !== 'pending') {
+        throw new Error('The server did not confirm unpaid status.');
+      }
+      setDoctor(updated);
+      setPaymentEntryOpen(false);
+      showPaymentMessage('Payment unpaid', 'No payment record was added.');
+    } catch (requestError) {
+      showPaymentMessage(
+        'Payment update failed',
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Unable to update payment.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
+
+  const openPaymentProof = async (record) => {
+    if (!doctor?._id || !record?._id) return;
+    try {
+      startAction('Loading screenshot...', 'Fetching the saved payment proof.');
+      const response = await api.get(
+        `/admin/doctors/${doctor._id}/payments/${record._id}/proof`
+      );
+      const proof = response?.data?.data;
+      if (!proof?.data) throw new Error('Screenshot is unavailable.');
+      setProofPreview({
+        uri: `data:${proof.contentType};base64,${proof.data}`,
+        fileName: proof.fileName,
+      });
+    } catch (requestError) {
+      showPaymentMessage(
+        'Unable to open screenshot',
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Please try again.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
+
+  const deletePaymentRecord = (record) => {
+    if (!doctor?._id || !record?._id) return;
+
+    const removeRecord = async () => {
+      try {
+        startAction('Deleting payment record...', 'Updating payment history.');
+        const response = await api.delete(
+          `/admin/doctors/${doctor._id}/payments/${record._id}`
+        );
+        if (response?.data?.data) {
+          setDoctor(response.data.data);
+        }
+      } catch (requestError) {
+        showPaymentMessage(
+          'Unable to delete payment',
+          requestError.response?.data?.message ||
+            requestError.message ||
+            'Please try again.'
+        );
+      } finally {
+        stopAction();
+      }
+    };
+
+    const message =
+      'Delete this payment record? Revenue and current payment status will be recalculated.';
+    if (Platform.OS === 'web') {
+      if (globalThis.confirm(message)) removeRecord();
+      return;
+    }
+
+    Alert.alert('Delete payment record?', message, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: removeRecord },
+    ]);
+  };
+
+  const reviewAccessRequest = async (action) => {
+    if (!accessRequest?._id) return;
+    try {
+      startAction(
+        action === 'approve'
+          ? 'Approving access request...'
+          : 'Rejecting access request...',
+        'Updating this doctor’s access request.'
+      );
+      const response = await api.post(
+        `/admin/access-requests/${accessRequest._id}/${action}`
+      );
+      setAccessRequest(null);
+      const updatedDoctor = response?.data?.data;
+      if (updatedDoctor?._id === doctor?._id) {
+        setDoctor(updatedDoctor);
+      }
+      showPaymentMessage(
+        action === 'approve'
+          ? 'Access approved'
+          : 'Access request rejected',
+        doctor?.name || 'Doctor access request updated.'
+      );
+    } catch (requestError) {
+      showPaymentMessage(
+        'Access request failed',
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Unable to update access request.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
+
+  const viewAccessRequestProof = async () => {
+    if (!accessRequest?._id) return;
+    try {
+      startAction('Loading screenshot...', 'Fetching the attached proof.');
+      const response = await api.get(
+        `/admin/access-requests/${accessRequest._id}/payment-proof`
+      );
+      const proof = response?.data?.data;
+      if (!proof?.data) throw new Error('Screenshot is unavailable.');
+      setProofPreview({
+        uri: `data:${proof.contentType};base64,${proof.data}`,
+        fileName: proof.fileName || 'Payment screenshot',
+      });
+    } catch (requestError) {
+      showPaymentMessage(
+        'Unable to open screenshot',
+        requestError.response?.data?.message ||
+          requestError.message ||
+          'Please try again.'
+      );
+    } finally {
+      stopAction();
+    }
+  };
 
 
   /* =======================================================
@@ -750,11 +1076,125 @@ export default function AdminDoctorDashboard({
 
         </Card>
 
+        <View style={styles.detailTabs}>
+          {[
+            ['overview', 'Overview'],
+            ['billing', 'Billing'],
+            ['profile', 'Profile'],
+          ].map(([value, label]) => (
+            <Pressable
+              key={value}
+              accessibilityRole="button"
+              accessibilityState={{ selected: detailTab === value }}
+              onPress={() => setDetailTab(value)}
+              style={[
+                styles.detailTab,
+                detailTab === value && styles.detailTabSelected,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.detailTabText,
+                  detailTab === value && styles.detailTabTextSelected,
+                ]}
+              >
+                {label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+
+        {detailTab === 'billing' ? (
+          <>
+        {accessRequest ? (
+          <>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionEyebrow}>
+                  ACCESS CONTROL
+                </Text>
+                <Text style={styles.sectionTitle}>
+                  Pending access request
+                </Text>
+              </View>
+            </View>
+
+            <Card style={styles.accessRequestPanel}>
+              <Text style={styles.accessRequestMessage}>
+                {accessRequest.message ||
+                  'This doctor requested access to the workspace.'}
+              </Text>
+
+              {accessRequest.paymentProof?.available ? (
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={viewAccessRequestProof}
+                  style={styles.accessProofButton}
+                >
+                  <Text style={styles.accessProofText}>
+                    View attached payment screenshot
+                  </Text>
+                </Pressable>
+              ) : null}
+
+              <View style={styles.paymentControls}>
+                <View style={styles.paymentControl}>
+                  <Button
+                    title="Reject request"
+                    danger
+                    onPress={() => reviewAccessRequest('reject')}
+                    disabled={actionLoading}
+                  />
+                </View>
+                <View style={styles.paymentControl}>
+                  <Button
+                    title="Approve access"
+                    onPress={() => reviewAccessRequest('approve')}
+                    disabled={actionLoading}
+                  />
+                </View>
+              </View>
+            </Card>
+          </>
+        ) : null}
+
+        <View style={styles.sectionHeader}>
+          <View>
+            <Text style={styles.sectionEyebrow}>
+              BILLING
+            </Text>
+            <Text style={styles.sectionTitle}>
+              Payment management
+            </Text>
+          </View>
+        </View>
+
+        <PaymentSummaryCard
+          doctor={doctor}
+          onHistory={() => setPaymentHistoryOpen(true)}
+        />
+
+        <View style={styles.adminPaymentActions}>
+          <Button
+            title={
+              doctor.paymentStatus === 'paid'
+                ? 'Change payment status'
+                : 'Mark paid / unpaid'
+            }
+            onPress={openPaymentEntry}
+            disabled={actionLoading}
+          />
+        </View>
+
+          </>
+        ) : null}
 
         {/* =================================================
             OVERVIEW
         ================================================= */}
 
+        {detailTab === 'overview' ? (
+          <>
         <View style={styles.sectionHeader}>
           <View>
             <Text style={styles.sectionEyebrow}>
@@ -1009,6 +1449,12 @@ export default function AdminDoctorDashboard({
             DOCTOR PROFILE
         ================================================= */}
 
+          </>
+        ) : null}
+
+        {detailTab === 'profile' ? (
+          <>
+
         <Card style={styles.profileCard}>
 
           <View style={styles.cardHeaderRow}>
@@ -1135,10 +1581,66 @@ export default function AdminDoctorDashboard({
 
         </Card>
 
+          </>
+        ) : null}
 
         <View style={styles.bottomSpace} />
 
       </FadeIn>
+
+      <PaymentEntryModal
+        visible={paymentEntryOpen}
+        doctor={doctor}
+        mode={paymentMode}
+        onModeChange={setPaymentMode}
+        amount={paymentAmount}
+        note={paymentNote}
+        transactionId={paymentTransactionId}
+        monthsPaid={paymentMonthsPaid}
+        paymentProof={paymentProof}
+        busy={actionLoading}
+        onAmountChange={setPaymentAmount}
+        onNoteChange={setPaymentNote}
+        onTransactionIdChange={setPaymentTransactionId}
+        onMonthsPaidChange={setPaymentMonthsPaid}
+        onPickProof={choosePaymentProof}
+        onRemoveProof={() => setPaymentProof(null)}
+        onCancel={() => setPaymentEntryOpen(false)}
+        onSubmit={submitPaidPayment}
+        onMarkUnpaid={submitUnpaidStatus}
+      />
+
+      <PaymentHistoryModal
+        doctor={paymentHistoryOpen ? doctor : null}
+        onClose={() => setPaymentHistoryOpen(false)}
+        onViewProof={openPaymentProof}
+        onDeleteRecord={deletePaymentRecord}
+      />
+
+      <Modal
+        visible={Boolean(proofPreview)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setProofPreview(null)}
+      >
+        <Pressable
+          style={adminStyles.proofOverlay}
+          onPress={() => setProofPreview(null)}
+        >
+          <View style={adminStyles.proofModal}>
+            <Text style={adminStyles.proofTitle}>
+              {proofPreview?.fileName || 'Payment screenshot'}
+            </Text>
+            {proofPreview ? (
+              <Image
+                source={{ uri: proofPreview.uri }}
+                resizeMode="contain"
+                style={adminStyles.proofImage}
+              />
+            ) : null}
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -1269,6 +1771,40 @@ const styles = StyleSheet.create({
 
   topSpacer: {
     width: 82,
+  },
+
+  detailTabs: {
+    flexDirection: 'row',
+    padding: 4,
+    marginVertical: 14,
+    borderRadius: 8,
+    backgroundColor: '#E9EFF0',
+  },
+
+  detailTab: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 38,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+  },
+
+  detailTabSelected: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#DDE7E8',
+  },
+
+  detailTabText: {
+    color: '#63747E',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  detailTabTextSelected: {
+    color: '#087A66',
+    fontWeight: '900',
   },
 
   doctorHero: {
@@ -1480,6 +2016,80 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: '900',
     color: '#14233B',
+  },
+
+  paymentPanel: {
+    marginBottom: 4,
+  },
+
+  adminPaymentActions: {
+    marginTop: 10,
+    marginBottom: 4,
+  },
+
+  accessRequestPanel: {
+    marginBottom: 4,
+  },
+
+  accessRequestMessage: {
+    color: '#52637A',
+    fontSize: 12,
+    lineHeight: 18,
+  },
+
+  accessProofButton: {
+    alignSelf: 'flex-start',
+    marginTop: 10,
+    paddingVertical: 6,
+  },
+
+  accessProofText: {
+    color: '#147D82',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+
+  paymentSummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+
+  paymentDueSummary: {
+    alignItems: 'flex-end',
+  },
+
+  paymentSummaryLabel: {
+    color: '#8B98A8',
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+
+  paymentSummaryValue: {
+    color: '#34445A',
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 5,
+  },
+
+  paymentSummaryPaid: {
+    color: '#16815E',
+  },
+
+  paymentSummaryDue: {
+    color: '#B76C12',
+  },
+
+  paymentControls: {
+    flexDirection: 'row',
+    marginHorizontal: -4,
+    marginTop: 14,
+  },
+
+  paymentControl: {
+    flex: 1,
+    marginHorizontal: 4,
   },
 
   statsGrid: {

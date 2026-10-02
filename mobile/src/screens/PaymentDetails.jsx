@@ -5,11 +5,14 @@ import React, {
 
 import {
   ActivityIndicator,
+  Alert,
+  Image,
   Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -17,6 +20,9 @@ import {
 import {
   useFocusEffect,
 } from '@react-navigation/native';
+
+import * as ImagePicker from 'expo-image-picker';
+import * as ImageManipulator from 'expo-image-manipulator';
 
 import {
   useAuth,
@@ -80,6 +86,46 @@ export default function PaymentDetails({ navigation }) {
     setErrorMessage,
   ] = useState('');
 
+  const [
+    submittingPayment,
+    setSubmittingPayment,
+  ] = useState(false);
+
+  const [
+    paymentAmount,
+    setPaymentAmount,
+  ] = useState('');
+
+  const [
+    paymentMonths,
+    setPaymentMonths,
+  ] = useState('1');
+
+  const [
+    paymentTransactionId,
+    setPaymentTransactionId,
+  ] = useState('');
+
+  const [
+    paymentNote,
+    setPaymentNote,
+  ] = useState('');
+
+  const [
+    paymentProof,
+    setPaymentProof,
+  ] = useState(null);
+
+  const [
+    proofPreview,
+    setProofPreview,
+  ] = useState('');
+
+  const [
+    showPaymentForm,
+    setShowPaymentForm,
+  ] = useState(false);
+
 
   /* =====================================================
      LOAD DETAILS
@@ -100,14 +146,11 @@ export default function PaymentDetails({ navigation }) {
 
         setErrorMessage('');
 
-
         const response =
           await api.get('/auth/me');
 
-
         const data =
           response?.data || {};
-
 
         const currentDoctor =
           data?.doctor ||
@@ -115,7 +158,6 @@ export default function PaymentDetails({ navigation }) {
           data?.user ||
           data?.data ||
           null;
-
 
         if (currentDoctor) {
 
@@ -139,7 +181,6 @@ export default function PaymentDetails({ navigation }) {
           error?.message ||
           error
         );
-
 
         if (!details && !doctor) {
 
@@ -189,14 +230,11 @@ export default function PaymentDetails({ navigation }) {
       'pending'
     ).toLowerCase();
 
-
   const isPaid =
     paymentStatus === 'paid';
 
-
   const isActive =
     details?.active !== false;
-
 
   const paymentHistory =
     Array.isArray(
@@ -205,24 +243,19 @@ export default function PaymentDetails({ navigation }) {
       ? details.paymentHistory
       : [];
 
-
   const registrationDate =
     details?.registrationDate ||
     details?.createdAt;
-
 
   const accessStartDate =
     details?.accessStartDate ||
     registrationDate;
 
-
   const lastPaymentDate =
     details?.lastPaymentDate;
 
-
   const nextPaymentDate =
     details?.nextPaymentDate;
-
 
   const accessRequestStatus =
     String(
@@ -230,15 +263,27 @@ export default function PaymentDetails({ navigation }) {
       ''
     ).toLowerCase();
 
-
   const accessRemovalReason =
     details?.accessRemovalReason ||
     '';
 
+  const pendingPayment =
+    details?.pendingPayment || null;
+
+  const pendingPaymentStatus =
+    String(
+      pendingPayment?.status || ''
+    ).toLowerCase();
+
+  const hasPendingPayment =
+    pendingPaymentStatus === 'pending';
+
+  const hasRejectedPayment =
+    pendingPaymentStatus === 'rejected';
+
 
   let accessLabel =
     'ACCESS ACTIVE';
-
 
   if (!isActive) {
     accessLabel =
@@ -249,11 +294,359 @@ export default function PaymentDetails({ navigation }) {
   let paymentLabel =
     'PAYMENT PENDING';
 
-
   if (isPaid) {
     paymentLabel =
       'PAYMENT VERIFIED';
+  } else if (hasPendingPayment) {
+    paymentLabel =
+      'VERIFICATION PENDING';
   }
+
+
+  /* =====================================================
+     PICK PAYMENT SCREENSHOT
+  ===================================================== */
+
+  const choosePaymentProof = async () => {
+
+    try {
+
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+      if (
+        !permission.granted
+      ) {
+
+        Alert.alert(
+          'Permission required',
+          'Please allow photo library access to attach your payment screenshot.'
+        );
+
+        return;
+      }
+
+
+      const result =
+        await ImagePicker.launchImageLibraryAsync({
+
+          mediaTypes:
+            ['images'],
+
+          allowsEditing: true,
+
+          quality: 0.8,
+
+          base64: false,
+
+        });
+
+
+      if (
+        result.canceled ||
+        !result.assets?.length
+      ) {
+        return;
+      }
+
+
+      const asset =
+        result.assets[0];
+
+
+      const manipulated =
+        await ImageManipulator.manipulateAsync(
+          asset.uri,
+          [
+            {
+              resize: {
+                width: Math.min(
+                  asset.width || 1200,
+                  1200
+                ),
+              },
+            },
+          ],
+          {
+            compress: 0.72,
+            format:
+              ImageManipulator.SaveFormat.JPEG,
+            base64: true,
+          }
+        );
+
+
+      if (
+        !manipulated.base64
+      ) {
+
+        Alert.alert(
+          'Screenshot error',
+          'Unable to prepare the selected screenshot.'
+        );
+
+        return;
+      }
+
+
+      const data =
+        `data:image/jpeg;base64,${manipulated.base64}`;
+
+
+      setPaymentProof({
+        data,
+        contentType: 'image/jpeg',
+        fileName:
+          'payment-proof.jpg',
+      });
+
+      setProofPreview(
+        manipulated.uri
+      );
+
+    } catch (error) {
+
+      console.error(
+        'PAYMENT PROOF PICK ERROR:',
+        error
+      );
+
+      Alert.alert(
+        'Screenshot error',
+        'Unable to select the payment screenshot.'
+      );
+
+    }
+
+  };
+
+
+  /* =====================================================
+     REMOVE SCREENSHOT
+  ===================================================== */
+
+  const removePaymentProof = () => {
+
+    setPaymentProof(null);
+    setProofPreview('');
+
+  };
+
+
+  /* =====================================================
+     OPEN PAYMENT FORM
+  ===================================================== */
+
+  const openPaymentForm = () => {
+
+    if (hasPendingPayment) {
+      return;
+    }
+
+    if (isPaid && !hasRejectedPayment) {
+
+      Alert.alert(
+        'Payment already verified',
+        'Your current payment has already been verified by the administrator.'
+      );
+
+      return;
+    }
+
+    setShowPaymentForm(true);
+
+  };
+
+
+  /* =====================================================
+     SUBMIT PAYMENT
+  ===================================================== */
+
+  const submitPayment = async () => {
+
+    const amount =
+      Number(
+        String(paymentAmount)
+          .replace(/,/g, '')
+          .trim()
+      );
+
+    const months =
+      Number(
+        String(paymentMonths)
+          .trim()
+      );
+
+    const transactionId =
+      paymentTransactionId.trim();
+
+    const note =
+      paymentNote.trim();
+
+
+    if (
+      !Number.isFinite(amount) ||
+      amount <= 0
+    ) {
+
+      Alert.alert(
+        'Amount required',
+        'Please enter a valid payment amount.'
+      );
+
+      return;
+    }
+
+
+    if (
+      !Number.isInteger(months) ||
+      months < 1 ||
+      months > 24
+    ) {
+
+      Alert.alert(
+        'Invalid months',
+        'Please enter a number of months between 1 and 24.'
+      );
+
+      return;
+    }
+
+
+    if (!transactionId) {
+
+      Alert.alert(
+        'Transaction ID required',
+        'Please enter your UTR or transaction ID.'
+      );
+
+      return;
+    }
+
+
+    if (
+      transactionId.length > 120
+    ) {
+
+      Alert.alert(
+        'Transaction ID too long',
+        'Transaction ID must be 120 characters or less.'
+      );
+
+      return;
+    }
+
+
+    if (
+      note.length > 500
+    ) {
+
+      Alert.alert(
+        'Note too long',
+        'Payment note must be 500 characters or less.'
+      );
+
+      return;
+    }
+
+
+    if (!paymentProof?.data) {
+
+      Alert.alert(
+        'Screenshot required',
+        'Please attach your payment screenshot.'
+      );
+
+      return;
+    }
+
+
+    try {
+
+      setSubmittingPayment(true);
+
+
+      const response =
+        await api.post(
+          '/auth/payment/submit',
+          {
+            amount,
+            monthsPaid: months,
+            transactionId,
+            note,
+            paymentProof: {
+              data:
+                paymentProof.data,
+              contentType:
+                paymentProof.contentType ||
+                'image/jpeg',
+              fileName:
+                paymentProof.fileName ||
+                'payment-proof.jpg',
+            },
+          }
+        );
+
+
+      console.log(
+        'PAYMENT SUBMITTED:',
+        response?.data
+      );
+
+
+      Alert.alert(
+        'Payment submitted',
+        'Your payment has been submitted successfully. The administrator will verify it shortly.',
+        [
+          {
+            text: 'OK',
+            onPress: async () => {
+
+              setPaymentAmount('');
+              setPaymentMonths('1');
+              setPaymentTransactionId('');
+              setPaymentNote('');
+              setPaymentProof(null);
+              setProofPreview('');
+              setShowPaymentForm(false);
+
+              await loadDetails({
+                refresh: true,
+              });
+
+            },
+          },
+        ]
+      );
+
+
+    } catch (error) {
+
+      console.error(
+        'PAYMENT SUBMIT ERROR:',
+        error?.response?.data ||
+        error?.message ||
+        error
+      );
+
+
+      const message =
+        error?.response?.data?.message ||
+        'Unable to submit payment right now. Please try again.';
+
+
+      Alert.alert(
+        'Payment submission failed',
+        message
+      );
+
+    } finally {
+
+      setSubmittingPayment(false);
+
+    }
+
+  };
 
 
   /* =====================================================
@@ -636,7 +1029,9 @@ export default function PaymentDetails({ navigation }) {
                       styles.statusMetricValue,
                       isPaid
                         ? styles.paidValue
-                        : styles.pendingValue,
+                        : hasPendingPayment
+                          ? styles.pendingVerificationValue
+                          : styles.pendingValue,
                     ]}
                   >
                     {paymentLabel}
@@ -685,6 +1080,638 @@ export default function PaymentDetails({ navigation }) {
 
 
             {/* =================================================
+                DOCTOR PAYMENT ACTION
+            ================================================= */}
+
+            <SectionTitle
+              eyebrow="MAKE A PAYMENT"
+              title="Payment submission"
+            />
+
+
+            {hasPendingPayment ? (
+
+              <View
+                style={
+                  styles.pendingPaymentCard
+                }
+              >
+
+                <View
+                  style={
+                    styles.pendingPaymentIcon
+                  }
+                >
+                  <Text
+                    style={
+                      styles.pendingPaymentIconText
+                    }
+                  >
+                    ⏳
+                  </Text>
+                </View>
+
+
+                <View
+                  style={
+                    styles.pendingPaymentContent
+                  }
+                >
+
+                  <Text
+                    style={
+                      styles.pendingPaymentTitle
+                    }
+                  >
+                    Payment Verification Pending
+                  </Text>
+
+
+                  <Text
+                    style={
+                      styles.pendingPaymentText
+                    }
+                  >
+                    Your payment has been submitted and is waiting for administrator verification.
+                  </Text>
+
+
+                  <View
+                    style={
+                      styles.pendingMetaGrid
+                    }
+                  >
+
+                    <PendingMeta
+                      label="AMOUNT"
+                      value={
+                        formatMoney(
+                          pendingPayment?.amount
+                        )
+                      }
+                    />
+
+                    <PendingMeta
+                      label="COVERAGE"
+                      value={
+                        `${pendingPayment?.monthsPaid || 1} ${
+                          Number(
+                            pendingPayment?.monthsPaid || 1
+                          ) === 1
+                            ? 'month'
+                            : 'months'
+                        }`
+                      }
+                    />
+
+                    <PendingMeta
+                      label="TRANSACTION"
+                      value={
+                        pendingPayment?.transactionId ||
+                        '—'
+                      }
+                    />
+
+                    <PendingMeta
+                      label="SUBMITTED"
+                      value={
+                        formatDate(
+                          pendingPayment?.submittedAt
+                        )
+                      }
+                    />
+
+                  </View>
+
+                </View>
+
+              </View>
+
+            ) : hasRejectedPayment ? (
+
+              <View
+                style={
+                  styles.rejectedPaymentCard
+                }
+              >
+
+                <View
+                  style={
+                    styles.rejectedPaymentTop
+                  }
+                >
+
+                  <View
+                    style={
+                      styles.rejectedIcon
+                    }
+                  >
+                    <Text
+                      style={
+                        styles.rejectedIconText
+                      }
+                    >
+                      !
+                    </Text>
+                  </View>
+
+
+                  <View
+                    style={
+                      styles.rejectedContent
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.rejectedTitle
+                      }
+                    >
+                      Payment Rejected
+                    </Text>
+
+
+                    <Text
+                      style={
+                        styles.rejectedText
+                      }
+                    >
+                      The administrator rejected your previous payment submission. Please review the note and submit again.
+                    </Text>
+
+                  </View>
+
+                </View>
+
+
+                {pendingPayment?.adminNote ? (
+
+                  <View
+                    style={
+                      styles.adminNoteBox
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.adminNoteLabel
+                      }
+                    >
+                      ADMIN NOTE
+                    </Text>
+
+
+                    <Text
+                      style={
+                        styles.adminNoteText
+                      }
+                    >
+                      {pendingPayment.adminNote}
+                    </Text>
+
+                  </View>
+
+                ) : null}
+
+
+                <Pressable
+                  onPress={() => {
+                    setPaymentAmount(
+                      pendingPayment?.amount
+                        ? String(
+                            pendingPayment.amount
+                          )
+                        : ''
+                    );
+
+                    setPaymentMonths(
+                      pendingPayment?.monthsPaid
+                        ? String(
+                            pendingPayment.monthsPaid
+                          )
+                        : '1'
+                    );
+
+                    setPaymentTransactionId(
+                      pendingPayment?.transactionId ||
+                      ''
+                    );
+
+                    setPaymentNote(
+                      pendingPayment?.note ||
+                      ''
+                    );
+
+                    setPaymentProof(null);
+                    setProofPreview('');
+                    setShowPaymentForm(true);
+                  }}
+                  style={({ pressed }) => [
+                    styles.primaryButton,
+                    pressed &&
+                      styles.primaryButtonPressed,
+                  ]}
+                >
+
+                  <Text
+                    style={
+                      styles.primaryButtonText
+                    }
+                  >
+                    Submit Payment Again
+                  </Text>
+
+                </Pressable>
+
+              </View>
+
+            ) : (
+
+              <View
+                style={
+                  styles.makePaymentCard
+                }
+              >
+
+                <View
+                  style={
+                    styles.makePaymentIcon
+                  }
+                >
+                  <Text
+                    style={
+                      styles.makePaymentIconText
+                    }
+                  >
+                    ₹
+                  </Text>
+                </View>
+
+
+                <View
+                  style={
+                    styles.makePaymentContent
+                  }
+                >
+
+                  <Text
+                    style={
+                      styles.makePaymentTitle
+                    }
+                  >
+                    {isPaid
+                      ? 'Submit another payment'
+                      : 'Complete your payment'}
+                  </Text>
+
+
+                  <Text
+                    style={
+                      styles.makePaymentText
+                    }
+                  >
+                    Add your payment amount, UTR or transaction ID and screenshot. The payment will be verified by the administrator before your billing record is updated.
+                  </Text>
+
+
+                  <Pressable
+                    onPress={openPaymentForm}
+                    style={({ pressed }) => [
+                      styles.primaryButton,
+                      pressed &&
+                        styles.primaryButtonPressed,
+                    ]}
+                  >
+
+                    <Text
+                      style={
+                        styles.primaryButtonText
+                      }
+                    >
+                      {isPaid
+                        ? 'Make Payment'
+                        : 'Pay & Submit Proof'}
+                    </Text>
+
+                  </Pressable>
+
+                </View>
+
+              </View>
+
+            )}
+
+
+            {/* =================================================
+                PAYMENT FORM
+            ================================================= */}
+
+            {showPaymentForm &&
+            !hasPendingPayment ? (
+
+              <Card>
+
+                <View
+                  style={
+                    styles.paymentForm
+                  }
+                >
+
+                  <View
+                    style={
+                      styles.formHeader
+                    }
+                  >
+
+                    <View>
+                      <Text
+                        style={
+                          styles.formEyebrow
+                        }
+                      >
+                        PAYMENT SUBMISSION
+                      </Text>
+
+                      <Text
+                        style={
+                          styles.formTitle
+                        }
+                      >
+                        Payment details
+                      </Text>
+                    </View>
+
+
+                    <Pressable
+                      onPress={() =>
+                        setShowPaymentForm(false)
+                      }
+                      style={
+                        styles.closeFormButton
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.closeFormText
+                        }
+                      >
+                        ×
+                      </Text>
+                    </Pressable>
+
+                  </View>
+
+
+                  <View
+                    style={[
+                      styles.formGrid,
+                      isTablet &&
+                        styles.formGridTablet,
+                    ]}
+                  >
+
+                    <FormField
+                      label="AMOUNT"
+                      placeholder="Enter amount"
+                      value={paymentAmount}
+                      onChangeText={
+                        setPaymentAmount
+                      }
+                      keyboardType="numeric"
+                    />
+
+
+                    <FormField
+                      label="MONTHS"
+                      placeholder="1"
+                      value={paymentMonths}
+                      onChangeText={
+                        setPaymentMonths
+                      }
+                      keyboardType="numeric"
+                    />
+
+                  </View>
+
+
+                  <FormField
+                    label="UTR / TRANSACTION ID"
+                    placeholder="Enter UTR or transaction ID"
+                    value={
+                      paymentTransactionId
+                    }
+                    onChangeText={
+                      setPaymentTransactionId
+                    }
+                    autoCapitalize="characters"
+                  />
+
+
+                  <FormField
+                    label="NOTE (OPTIONAL)"
+                    placeholder="Add payment note"
+                    value={
+                      paymentNote
+                    }
+                    onChangeText={
+                      setPaymentNote
+                    }
+                    multiline
+                    numberOfLines={3}
+                  />
+
+
+                  {/* SCREENSHOT */}
+
+                  <Text
+                    style={
+                      styles.formLabel
+                    }
+                  >
+                    PAYMENT SCREENSHOT
+                  </Text>
+
+
+                  {proofPreview ? (
+
+                    <View
+                      style={
+                        styles.proofPreviewBox
+                      }
+                    >
+
+                      <Image
+                        source={{
+                          uri:
+                            proofPreview,
+                        }}
+                        style={
+                          styles.proofImage
+                        }
+                        resizeMode="cover"
+                      />
+
+
+                      <View
+                        style={
+                          styles.proofActions
+                        }
+                      >
+
+                        <Text
+                          style={
+                            styles.proofAttachedText
+                          }
+                        >
+                          Screenshot attached
+                        </Text>
+
+
+                        <Pressable
+                          onPress={
+                            removePaymentProof
+                          }
+                          style={
+                            styles.removeProofButton
+                          }
+                        >
+
+                          <Text
+                            style={
+                              styles.removeProofText
+                            }
+                          >
+                            Remove
+                          </Text>
+
+                        </Pressable>
+
+                      </View>
+
+                    </View>
+
+                  ) : (
+
+                    <Pressable
+                      onPress={
+                        choosePaymentProof
+                      }
+                      style={({ pressed }) => [
+                        styles.uploadBox,
+                        pressed &&
+                          styles.uploadBoxPressed,
+                      ]}
+                    >
+
+                      <View
+                        style={
+                          styles.uploadIcon
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.uploadIconText
+                          }
+                        >
+                          +
+                        </Text>
+                      </View>
+
+
+                      <Text
+                        style={
+                          styles.uploadTitle
+                        }
+                      >
+                        Attach payment screenshot
+                      </Text>
+
+
+                      <Text
+                        style={
+                          styles.uploadText
+                        }
+                      >
+                        JPG, PNG or WEBP screenshot
+                      </Text>
+
+                    </Pressable>
+
+                  )}
+
+
+                  <View
+                    style={
+                      styles.formSecurity
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.formSecurityIcon
+                      }
+                    >
+                      ✓
+                    </Text>
+
+
+                    <Text
+                      style={
+                        styles.formSecurityText
+                      }
+                    >
+                      Your payment is only marked verified after administrator approval.
+                    </Text>
+
+                  </View>
+
+
+                  <Pressable
+                    onPress={
+                      submitPayment
+                    }
+                    disabled={
+                      submittingPayment
+                    }
+                    style={({ pressed }) => [
+                      styles.submitPaymentButton,
+                      submittingPayment &&
+                        styles.submitPaymentDisabled,
+                      pressed &&
+                        !submittingPayment &&
+                        styles.primaryButtonPressed,
+                    ]}
+                  >
+
+                    {submittingPayment ? (
+
+                      <ActivityIndicator
+                        color="#FFFFFF"
+                        size="small"
+                      />
+
+                    ) : (
+
+                      <Text
+                        style={
+                          styles.submitPaymentText
+                        }
+                      >
+                        Submit Payment for Verification
+                      </Text>
+
+                    )}
+
+                  </Pressable>
+
+                </View>
+
+              </Card>
+
+            ) : null}
+
+
+            {/* =================================================
                 PAYMENT OVERVIEW
             ================================================= */}
 
@@ -705,16 +1732,20 @@ export default function PaymentDetails({ navigation }) {
               <InfoBlock
                 label="Payment status"
                 value={
-                  isPaid
-                    ? 'Paid / Verified'
-                    : formatStatus(
-                        paymentStatus
-                      )
+                  hasPendingPayment
+                    ? 'Verification Pending'
+                    : isPaid
+                      ? 'Paid / Verified'
+                      : formatStatus(
+                          paymentStatus
+                        )
                 }
                 tone={
                   isPaid
                     ? 'success'
-                    : 'warning'
+                    : hasPendingPayment
+                      ? 'info'
+                      : 'warning'
                 }
               />
 
@@ -989,7 +2020,7 @@ export default function PaymentDetails({ navigation }) {
                     }
                   >
                     Payment records will appear here
-                    once a payment is recorded.
+                    once a payment is verified.
                   </Text>
 
                 </View>
@@ -1123,6 +2154,103 @@ export default function PaymentDetails({ navigation }) {
 
 
 /* =====================================================
+   FORM FIELD
+===================================================== */
+
+function FormField({
+  label,
+  placeholder,
+  value,
+  onChangeText,
+  keyboardType,
+  multiline,
+  numberOfLines,
+  autoCapitalize,
+}) {
+
+  return (
+    <View
+      style={
+        styles.formField
+      }
+    >
+
+      <Text
+        style={
+          styles.formLabel
+        }
+      >
+        {label}
+      </Text>
+
+
+      <TextInput
+        value={value}
+        onChangeText={onChangeText}
+        placeholder={placeholder}
+        placeholderTextColor="#94A3B8"
+        keyboardType={
+          keyboardType || 'default'
+        }
+        multiline={Boolean(multiline)}
+        numberOfLines={
+          numberOfLines || 1
+        }
+        autoCapitalize={
+          autoCapitalize || 'sentences'
+        }
+        style={[
+          styles.input,
+          multiline &&
+            styles.textArea,
+        ]}
+      />
+
+    </View>
+  );
+}
+
+
+/* =====================================================
+   PENDING META
+===================================================== */
+
+function PendingMeta({
+  label,
+  value,
+}) {
+
+  return (
+    <View
+      style={
+        styles.pendingMeta
+      }
+    >
+
+      <Text
+        style={
+          styles.pendingMetaLabel
+        }
+      >
+        {label}
+      </Text>
+
+
+      <Text
+        style={
+          styles.pendingMetaValue
+        }
+        numberOfLines={2}
+      >
+        {value}
+      </Text>
+
+    </View>
+  );
+}
+
+
+/* =====================================================
    SECTION TITLE
 ===================================================== */
 
@@ -1170,19 +2298,16 @@ function InfoBlock({
   tone,
 }) {
 
-  const toneStyle =
-    tone === 'success'
-      ? styles.infoSuccess
-      : tone === 'warning'
-        ? styles.infoWarning
-        : null;
-
-
   return (
     <View
       style={[
         styles.infoBlock,
-        toneStyle,
+        tone === 'success' &&
+          styles.infoSuccess,
+        tone === 'warning' &&
+          styles.infoWarning,
+        tone === 'info' &&
+          styles.infoInfo,
       ]}
     >
 
@@ -1202,6 +2327,8 @@ function InfoBlock({
             styles.infoValueSuccess,
           tone === 'warning' &&
             styles.infoValueWarning,
+          tone === 'info' &&
+            styles.infoValueInfo,
         ]}
         numberOfLines={2}
       >
@@ -1553,6 +2680,21 @@ function formatDate(value) {
 
 
 /* =====================================================
+   MONEY FORMAT
+===================================================== */
+
+function formatMoney(value) {
+
+  const amount =
+    Number(value || 0);
+
+  return `₹${amount.toLocaleString(
+    'en-IN'
+  )}`;
+}
+
+
+/* =====================================================
    STATUS FORMAT
 ===================================================== */
 
@@ -1637,18 +2779,9 @@ function getRequestStatusTextStyle(
 
 const styles = StyleSheet.create({
 
-  /* ===================================================
-     SCROLL
-  =================================================== */
-
   scrollContent: {
     paddingBottom: 8,
   },
-
-
-  /* ===================================================
-     PAGE HEADER
-  =================================================== */
 
   pageHeader: {
     flexDirection: 'row',
@@ -1728,11 +2861,6 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 
-
-  /* ===================================================
-     LOADING
-  =================================================== */
-
   loadingState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -1754,11 +2882,6 @@ const styles = StyleSheet.create({
     maxWidth: 290,
     marginTop: 5,
   },
-
-
-  /* ===================================================
-     ERROR
-  =================================================== */
 
   errorBox: {
     alignItems: 'center',
@@ -1813,11 +2936,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '900',
   },
-
-
-  /* ===================================================
-     STATUS CARD
-  =================================================== */
 
   statusCard: {
     position: 'relative',
@@ -1977,17 +3095,16 @@ const styles = StyleSheet.create({
     color: '#FBBF24',
   },
 
+  pendingVerificationValue: {
+    color: '#60A5FA',
+  },
+
   metricDivider: {
     width: 1,
     height: 29,
     backgroundColor: 'rgba(255,255,255,0.10)',
     marginHorizontal: 14,
   },
-
-
-  /* ===================================================
-     SECTION
-  =================================================== */
 
   sectionHeader: {
     marginTop: 1,
@@ -2010,10 +3127,430 @@ const styles = StyleSheet.create({
     letterSpacing: -0.4,
   },
 
+  /* PAYMENT ACTION */
 
-  /* ===================================================
-     INFO GRID
-  =================================================== */
+  makePaymentCard: {
+    flexDirection: 'row',
+    backgroundColor: '#F4F8FF',
+    borderWidth: 1,
+    borderColor: '#D9E8FF',
+    borderRadius: 19,
+    padding: 14,
+    marginBottom: 17,
+  },
+
+  makePaymentIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#E4EEFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  makePaymentIconText: {
+    color: colors.blue,
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  makePaymentContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  makePaymentTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  makePaymentText: {
+    color: colors.muted,
+    fontSize: 9,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+
+  primaryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.blue,
+    borderRadius: 11,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    marginTop: 11,
+  },
+
+  primaryButtonPressed: {
+    opacity: 0.68,
+  },
+
+  primaryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 8.5,
+    fontWeight: '900',
+  },
+
+  pendingPaymentCard: {
+    flexDirection: 'row',
+    backgroundColor: '#EFF6FF',
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderRadius: 19,
+    padding: 14,
+    marginBottom: 17,
+  },
+
+  pendingPaymentIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#DBEAFE',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  pendingPaymentIconText: {
+    fontSize: 17,
+  },
+
+  pendingPaymentContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  pendingPaymentTitle: {
+    color: '#1E40AF',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  pendingPaymentText: {
+    color: '#526B89',
+    fontSize: 9,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+
+  pendingMetaGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 10,
+    marginHorizontal: -4,
+  },
+
+  pendingMeta: {
+    minWidth: 105,
+    flex: 1,
+    paddingHorizontal: 4,
+    marginBottom: 6,
+  },
+
+  pendingMetaLabel: {
+    color: '#7890AA',
+    fontSize: 6.5,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+
+  pendingMetaValue: {
+    color: '#1E3A5F',
+    fontSize: 8.5,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+
+  rejectedPaymentCard: {
+    backgroundColor: '#FFF7F8',
+    borderWidth: 1,
+    borderColor: '#FECDD3',
+    borderRadius: 19,
+    padding: 14,
+    marginBottom: 17,
+  },
+
+  rejectedPaymentTop: {
+    flexDirection: 'row',
+  },
+
+  rejectedIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#FFE4E6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  rejectedIconText: {
+    color: '#E11D48',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  rejectedContent: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  rejectedTitle: {
+    color: '#9F1239',
+    fontSize: 13,
+    fontWeight: '900',
+  },
+
+  rejectedText: {
+    color: '#7F5260',
+    fontSize: 9,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+
+  adminNoteBox: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F5D0D7',
+    borderRadius: 11,
+    padding: 10,
+    marginTop: 11,
+  },
+
+  adminNoteLabel: {
+    color: '#9F1239',
+    fontSize: 6.5,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+  },
+
+  adminNoteText: {
+    color: '#4C2632',
+    fontSize: 9,
+    lineHeight: 15,
+    marginTop: 4,
+  },
+
+  /* FORM */
+
+  paymentForm: {
+    paddingBottom: 2,
+  },
+
+  formHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 13,
+  },
+
+  formEyebrow: {
+    color: colors.blue,
+    fontSize: 7,
+    fontWeight: '900',
+    letterSpacing: 1.1,
+  },
+
+  formTitle: {
+    color: colors.ink,
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 3,
+  },
+
+  closeFormButton: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  closeFormText: {
+    color: '#64748B',
+    fontSize: 21,
+    lineHeight: 21,
+  },
+
+  formGrid: {
+    flexDirection: 'row',
+    marginHorizontal: -4,
+  },
+
+  formGridTablet: {
+    marginHorizontal: -5,
+  },
+
+  formGridTablet: {
+    flexDirection: 'row',
+  },
+
+  formField: {
+    flex: 1,
+    minWidth: 0,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+
+  formLabel: {
+    color: '#64748B',
+    fontSize: 7,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+    marginBottom: 5,
+  },
+
+  input: {
+    minHeight: 43,
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#DCE6F0',
+    borderRadius: 11,
+    paddingHorizontal: 11,
+    paddingVertical: 9,
+    color: colors.ink,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  textArea: {
+    minHeight: 75,
+    textAlignVertical: 'top',
+  },
+
+  uploadBox: {
+    minHeight: 125,
+    borderWidth: 1,
+    borderColor: '#BDD2F2',
+    borderStyle: 'dashed',
+    backgroundColor: '#F8FBFF',
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 13,
+    marginBottom: 12,
+  },
+
+  uploadBoxPressed: {
+    opacity: 0.65,
+  },
+
+  uploadIcon: {
+    width: 37,
+    height: 37,
+    borderRadius: 12,
+    backgroundColor: '#EAF2FF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 7,
+  },
+
+  uploadIconText: {
+    color: colors.blue,
+    fontSize: 22,
+    fontWeight: '700',
+  },
+
+  uploadTitle: {
+    color: colors.ink,
+    fontSize: 10,
+    fontWeight: '900',
+  },
+
+  uploadText: {
+    color: colors.muted,
+    fontSize: 7.5,
+    marginTop: 3,
+  },
+
+  proofPreviewBox: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#DCE6F0',
+    backgroundColor: '#F8FAFC',
+    marginBottom: 12,
+  },
+
+  proofImage: {
+    width: '100%',
+    height: 190,
+    backgroundColor: '#E2E8F0',
+  },
+
+  proofActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 9,
+  },
+
+  proofAttachedText: {
+    color: '#15803D',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+
+  removeProofButton: {
+    backgroundColor: '#FFF1F2',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+  },
+
+  removeProofText: {
+    color: '#E11D48',
+    fontSize: 7,
+    fontWeight: '900',
+  },
+
+  formSecurity: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F0FDF9',
+    borderWidth: 1,
+    borderColor: '#D7F4E8',
+    borderRadius: 11,
+    padding: 9,
+    marginBottom: 11,
+  },
+
+  formSecurityIcon: {
+    color: '#16A34A',
+    fontSize: 11,
+    fontWeight: '900',
+    marginRight: 7,
+  },
+
+  formSecurityText: {
+    flex: 1,
+    color: '#4D7C65',
+    fontSize: 7.5,
+    lineHeight: 13,
+  },
+
+  submitPaymentButton: {
+    minHeight: 44,
+    borderRadius: 12,
+    backgroundColor: colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 15,
+  },
+
+  submitPaymentDisabled: {
+    opacity: 0.65,
+  },
+
+  submitPaymentText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+
+  /* INFO */
 
   infoGrid: {
     flexDirection: 'row',
@@ -2032,13 +3569,9 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
   },
 
-  infoSuccess: {
-    // intentionally subtle; keeps common card design
-  },
-
-  infoWarning: {
-    // intentionally subtle; keeps common card design
-  },
+  infoSuccess: {},
+  infoWarning: {},
+  infoInfo: {},
 
   infoLabel: {
     color: colors.muted,
@@ -2064,10 +3597,11 @@ const styles = StyleSheet.create({
     color: '#D97706',
   },
 
+  infoValueInfo: {
+    color: '#2563EB',
+  },
 
-  /* ===================================================
-     TIMELINE
-  =================================================== */
+  /* TIMELINE */
 
   timelineItem: {
     flexDirection: 'row',
@@ -2132,7 +3666,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
   },
 
   timelineTitle: {
@@ -2155,10 +3688,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-
-  /* ===================================================
-     REQUEST
-  =================================================== */
+  /* REQUEST */
 
   requestRow: {
     flexDirection: 'row',
@@ -2258,10 +3788,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-
-  /* ===================================================
-     PAYMENT HISTORY
-  =================================================== */
+  /* HISTORY */
 
   historyItem: {
     flexDirection: 'row',
@@ -2301,7 +3828,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: 8,
   },
 
   historyAmount: {
@@ -2364,11 +3890,6 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
 
-
-  /* ===================================================
-     EMPTY HISTORY
-  =================================================== */
-
   emptyHistory: {
     alignItems: 'center',
     paddingVertical: 13,
@@ -2405,10 +3926,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-
-  /* ===================================================
-     SECURITY
-  =================================================== */
+  /* SECURITY */
 
   securityCard: {
     flexDirection: 'row',
@@ -2454,11 +3972,6 @@ const styles = StyleSheet.create({
     lineHeight: 14,
     marginTop: 3,
   },
-
-
-  /* ===================================================
-     REFRESH
-  =================================================== */
 
   refreshButton: {
     alignSelf: 'center',

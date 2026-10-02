@@ -10,8 +10,15 @@ const Notification = require('../models/Notification');
 const Admin = require('../models/Admin');
 
 const auth = require('../middleware/auth');
+
 const ensurePaymentNotification =
   require('../services/paymentCycle');
+
+/*
+|--------------------------------------------------------------------------
+| TOKEN
+|--------------------------------------------------------------------------
+*/
 
 const makeToken = (id, type) =>
   jwt.sign(
@@ -25,29 +32,74 @@ const makeToken = (id, type) =>
     }
   );
 
+/*
+|--------------------------------------------------------------------------
+| CLEAN ACCOUNT
+|--------------------------------------------------------------------------
+|
+| Never send password or raw payment proof to the mobile app.
+|
+*/
+
 const clean = (account) => {
   const value = account.toObject();
 
   delete value.password;
 
+  /*
+  |--------------------------------------------------------------------------
+  | Verified payment history
+  |--------------------------------------------------------------------------
+  */
+
   if (Array.isArray(value.paymentHistory)) {
-    value.paymentHistory =
-      value.paymentHistory.map((record) => ({
-        ...record,
-        paymentProof: record.paymentProof?.data
-          ? {
-              available: true,
-              contentType:
-                record.paymentProof.contentType,
-              fileName:
-                record.paymentProof.fileName,
-            }
-          : null,
-      }));
+    value.paymentHistory = value.paymentHistory.map((record) => ({
+      ...record,
+
+      paymentProof: record.paymentProof?.data
+        ? {
+            available: true,
+            contentType: record.paymentProof.contentType,
+            fileName: record.paymentProof.fileName,
+          }
+        : null,
+    }));
+  }
+
+  /*
+  |--------------------------------------------------------------------------
+  | Pending payment
+  |--------------------------------------------------------------------------
+  |
+  | Do not send base64 screenshot to the mobile app.
+  | Only send metadata.
+  |
+  */
+
+  if (value.pendingPayment) {
+    value.pendingPayment = {
+      ...value.pendingPayment,
+
+      paymentProof: value.pendingPayment.paymentProof?.data
+        ? {
+            available: true,
+            contentType:
+              value.pendingPayment.paymentProof.contentType,
+            fileName:
+              value.pendingPayment.paymentProof.fileName,
+          }
+        : null,
+    };
   }
 
   return value;
 };
+
+/*
+|--------------------------------------------------------------------------
+| ADD ONE MONTH
+|--------------------------------------------------------------------------
+*/
 
 const addOneMonth = (date) => {
   const d = new Date(date);
@@ -55,6 +107,7 @@ const addOneMonth = (date) => {
   const originalDay = d.getDate();
 
   d.setDate(1);
+
   d.setMonth(d.getMonth() + 1);
 
   const lastDayOfMonth = new Date(
@@ -70,18 +123,41 @@ const addOneMonth = (date) => {
   return d;
 };
 
+/*
+|--------------------------------------------------------------------------
+| REGISTER FIELDS
+|--------------------------------------------------------------------------
+*/
+
 const fields = (b) => ({
   name: b.name.trim(),
   email: b.email.trim().toLowerCase(),
+
   phone: b.phone || '',
-  qualification: b.qualification || '',
-  specialization: b.specialization || '',
-  registrationNumber: b.registrationNumber || '',
-  clinicName: b.clinicName || '',
-  clinicAddress: b.clinicAddress || '',
-  clinicLogo: b.clinicLogo || '',
-  clinicBanner: b.clinicBanner || '',
-  signature: b.signature || '',
+
+  qualification:
+    b.qualification || '',
+
+  specialization:
+    b.specialization || '',
+
+  registrationNumber:
+    b.registrationNumber || '',
+
+  clinicName:
+    b.clinicName || '',
+
+  clinicAddress:
+    b.clinicAddress || '',
+
+  clinicLogo:
+    b.clinicLogo || '',
+
+  clinicBanner:
+    b.clinicBanner || '',
+
+  signature:
+    b.signature || '',
 });
 
 /*
@@ -134,6 +210,7 @@ router.post(
 
       await DoctorRequest.create({
         ...data,
+
         password: await bcrypt.hash(
           b.password,
           12
@@ -200,6 +277,7 @@ router.post(
 
       res.json({
         success: true,
+
         message:
           'Login successful',
 
@@ -229,9 +307,9 @@ router.post(
 |
 | This route intentionally does NOT use auth middleware.
 |
-| Why?
 | A disabled doctor cannot pass the normal auth middleware.
 | We verify email + password here before creating the request.
+|
 |--------------------------------------------------------------------------
 */
 
@@ -290,6 +368,12 @@ router.post(
         });
       }
 
+      /*
+      |--------------------------------------------------------------------------
+      | PAYMENT PROOF VALIDATION
+      |--------------------------------------------------------------------------
+      */
+
       const incomingProof =
         req.body.paymentProof;
 
@@ -316,7 +400,9 @@ router.post(
         await AccessRequest.findOne({
           doctorId: doctor._id,
           status: 'pending',
-        }).sort({ createdAt: -1 });
+        }).sort({
+          createdAt: -1,
+        });
 
       const createdRequest = !request;
 
@@ -338,56 +424,83 @@ router.post(
       if (incomingProof) {
         request.paymentProof = {
           data: incomingProof.data,
-          contentType: incomingProof.contentType,
+
+          contentType:
+            incomingProof.contentType,
+
           fileName:
             incomingProof.fileName ||
             'payment-proof',
+
           uploadedAt: now,
         };
       }
 
       request.requestedAt = now;
+
       await request.save();
 
       doctor.accessRequestStatus =
         'pending';
 
-      doctor.accessRequestedAt = now;
+      doctor.accessRequestedAt =
+        now;
 
       doctor.accessRequestReviewedAt =
         null;
 
       await doctor.save();
 
-      if (createdRequest || incomingProof) {
+      if (
+        createdRequest ||
+        incomingProof
+      ) {
         await Notification.create({
           type: 'access_request',
-          doctorId: doctor._id,
+
+          doctorId:
+            doctor._id,
+
           title: incomingProof
             ? 'Payment proof submitted'
             : 'Access request received',
+
           message: incomingProof
             ? `${doctor.name} requested access and attached payment proof.`
             : `${doctor.name} has requested Veda access.`,
         });
       }
 
-      res.status(createdRequest ? 201 : 200).json({
+      res.status(
+        createdRequest ? 201 : 200
+      ).json({
         success: true,
-        alreadyPending: !createdRequest,
+
+        alreadyPending:
+          !createdRequest,
+
         message: incomingProof
           ? 'Access request and payment proof sent to admin.'
           : createdRequest
             ? 'Access request sent to admin.'
             : 'Your access request is already pending with admin.',
+
         status: 'pending',
-        requestId: request._id,
+
+        requestId:
+          request._id,
       });
     } catch (e) {
       next(e);
     }
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| REQUEST ACCESS FROM SIGNED-IN DOCTOR SESSION
+|--------------------------------------------------------------------------
+*/
 
 router.post(
   '/request-access-session',
@@ -397,24 +510,29 @@ router.post(
       if (!req.doctor) {
         return res.status(403).json({
           success: false,
-          message: 'Doctor access required.',
+          message:
+            'Doctor access required.',
         });
       }
 
       const doctor =
-        await Doctor.findById(req.doctor._id);
+        await Doctor.findById(
+          req.doctor._id
+        );
 
       if (!doctor) {
         return res.status(404).json({
           success: false,
-          message: 'Doctor account not found.',
+          message:
+            'Doctor account not found.',
         });
       }
 
       if (doctor.active !== false) {
         return res.status(400).json({
           success: false,
-          message: 'Your access is already active.',
+          message:
+            'Your access is already active.',
         });
       }
 
@@ -423,33 +541,55 @@ router.post(
           doctorId: doctor._id,
           status: 'pending',
         });
-      const createdRequest = !request;
+
+      const createdRequest =
+        !request;
 
       if (!request) {
-        request = new AccessRequest({
-          doctorId: doctor._id,
-          status: 'pending',
-        });
+        request =
+          new AccessRequest({
+            doctorId:
+              doctor._id,
+
+            status:
+              'pending',
+          });
       }
 
       request.message =
         req.body?.message ||
         'Doctor requested access from their signed-in workspace.';
-      request.requestedAt = new Date();
+
+      request.requestedAt =
+        new Date();
+
       await request.save();
 
-      doctor.accessRequestStatus = 'pending';
-      doctor.accessRequestedAt = new Date();
-      doctor.accessRequestReviewedAt = null;
+      doctor.accessRequestStatus =
+        'pending';
+
+      doctor.accessRequestedAt =
+        new Date();
+
+      doctor.accessRequestReviewedAt =
+        null;
+
       await doctor.save();
 
       if (createdRequest) {
         try {
           await Notification.create({
-            type: 'access_request',
-            doctorId: doctor._id,
-            title: 'Access request received',
-            message: `${doctor.name} requested access from their signed-in workspace.`,
+            type:
+              'access_request',
+
+            doctorId:
+              doctor._id,
+
+            title:
+              'Access request received',
+
+            message:
+              `${doctor.name} requested access from their signed-in workspace.`,
           });
         } catch (notificationError) {
           console.error(
@@ -459,15 +599,409 @@ router.post(
         }
       }
 
-      return res.status(createdRequest ? 201 : 200).json({
+      return res.status(
+        createdRequest ? 201 : 200
+      ).json({
         success: true,
-        alreadyPending: !createdRequest,
-        message: createdRequest
-          ? 'Access request sent to the administrator.'
-          : 'Your access request is already pending.',
-        status: 'pending',
+
+        alreadyPending:
+          !createdRequest,
+
+        message:
+          createdRequest
+            ? 'Access request sent to the administrator.'
+            : 'Your access request is already pending.',
+
+        status:
+          'pending',
       });
     } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| DOCTOR PAYMENT SUBMISSION
+|--------------------------------------------------------------------------
+|
+| Doctor submits:
+| - Amount
+| - Number of months
+| - Transaction / UTR ID
+| - Note
+| - Payment screenshot
+|
+| IMPORTANT:
+| This does NOT mark payment as paid.
+|
+| Admin must verify the payment from AdminDoctorDashboard.
+|
+|--------------------------------------------------------------------------
+*/
+
+router.post(
+  '/payment/submit',
+  auth,
+  async (req, res, next) => {
+    try {
+      /*
+      |--------------------------------------------------------------------------
+      | Only doctor can submit payment
+      |--------------------------------------------------------------------------
+      */
+
+      if (!req.doctor) {
+        return res.status(403).json({
+          success: false,
+          message:
+            'Doctor access required.',
+        });
+      }
+
+      const doctor =
+        await Doctor.findById(
+          req.doctor._id
+        );
+
+      if (!doctor) {
+        return res.status(404).json({
+          success: false,
+          message:
+            'Doctor account not found.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Validate active account
+      |--------------------------------------------------------------------------
+      */
+
+      if (doctor.active === false) {
+        return res.status(403).json({
+          success: false,
+          message:
+            'Your Veda access is currently inactive. Please request access first.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Prevent duplicate pending payment
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        doctor.pendingPayment &&
+        doctor.pendingPayment.status ===
+          'pending'
+      ) {
+        return res.status(409).json({
+          success: false,
+          message:
+            'A payment is already waiting for admin verification.',
+          pendingPayment:
+            true,
+        });
+      }
+
+      const body =
+        req.body || {};
+
+      /*
+      |--------------------------------------------------------------------------
+      | Amount
+      |--------------------------------------------------------------------------
+      */
+
+      const amount =
+        Number(body.amount);
+
+      if (
+        !Number.isFinite(amount) ||
+        amount <= 0
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Enter a valid payment amount.',
+        });
+      }
+
+      if (amount > 10000000) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Payment amount is too large.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Months
+      |--------------------------------------------------------------------------
+      */
+
+      const monthsPaid =
+        Number(body.monthsPaid);
+
+      if (
+        !Number.isInteger(
+          monthsPaid
+        ) ||
+        monthsPaid < 1 ||
+        monthsPaid > 24
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Months paid must be between 1 and 24.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Transaction ID / UTR
+      |--------------------------------------------------------------------------
+      */
+
+      const transactionId =
+        String(
+          body.transactionId || ''
+        ).trim();
+
+      if (!transactionId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Transaction ID / UTR is required.',
+        });
+      }
+
+      if (
+        transactionId.length > 120
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Transaction ID is too long.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Note
+      |--------------------------------------------------------------------------
+      */
+
+      const note =
+        String(
+          body.note || ''
+        ).trim();
+
+      if (note.length > 500) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Payment note cannot exceed 500 characters.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Screenshot
+      |--------------------------------------------------------------------------
+      */
+
+      const paymentProof =
+        body.paymentProof;
+
+      if (
+        !paymentProof ||
+        typeof paymentProof !== 'object'
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Payment screenshot is required.',
+        });
+      }
+
+      if (
+        typeof paymentProof.data !==
+        'string'
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Invalid payment screenshot.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Keep request under Express 2 MB JSON limit
+      |--------------------------------------------------------------------------
+      */
+
+      if (
+        paymentProof.data.length >
+        1400000
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Payment screenshot is too large. Please choose a smaller image.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Valid image type
+      |--------------------------------------------------------------------------
+      */
+
+      const contentType =
+        String(
+          paymentProof.contentType ||
+            ''
+        ).toLowerCase();
+
+      if (
+        !/^image\/(jpeg|png|webp)$/.test(
+          contentType
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Payment screenshot must be JPEG, PNG, or WEBP.',
+        });
+      }
+
+      /*
+      |--------------------------------------------------------------------------
+      | Save pending payment
+      |--------------------------------------------------------------------------
+      */
+
+      const now =
+        new Date();
+
+      doctor.pendingPayment = {
+        amount,
+
+        monthsPaid,
+
+        transactionId,
+
+        note,
+
+        submittedAt:
+          now,
+
+        status:
+          'pending',
+
+        reviewedAt:
+          null,
+
+        reviewedBy:
+          null,
+
+        adminNote:
+          '',
+
+        paymentProof: {
+          data:
+            paymentProof.data,
+
+          contentType,
+
+          fileName:
+            paymentProof.fileName ||
+            'payment-proof.jpg',
+        },
+      };
+
+      /*
+      |--------------------------------------------------------------------------
+      | IMPORTANT
+      |--------------------------------------------------------------------------
+      |
+      | Do NOT change:
+      | paymentStatus
+      | lastPaymentDate
+      | nextPaymentDate
+      | paymentHistory
+      |
+      | Those are changed only after admin verification.
+      |
+      */
+
+      await doctor.save();
+
+      /*
+      |--------------------------------------------------------------------------
+      | Notify admin
+      |--------------------------------------------------------------------------
+      |
+      | Your current Notification system is doctor-oriented.
+      | We avoid assuming an admin notification schema.
+      | Admin dashboard can directly read pendingPayment from Doctor.
+      |
+      |--------------------------------------------------------------------------
+      */
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          'Payment submitted successfully. Please wait for administrator verification.',
+
+        pendingPayment: {
+          amount:
+            doctor.pendingPayment.amount,
+
+          monthsPaid:
+            doctor.pendingPayment.monthsPaid,
+
+          transactionId:
+            doctor.pendingPayment.transactionId,
+
+          note:
+            doctor.pendingPayment.note,
+
+          submittedAt:
+            doctor.pendingPayment.submittedAt,
+
+          status:
+            doctor.pendingPayment.status,
+
+          paymentProof: {
+            available:
+              true,
+
+            contentType:
+              doctor.pendingPayment
+                .paymentProof
+                .contentType,
+
+            fileName:
+              doctor.pendingPayment
+                .paymentProof
+                .fileName,
+          },
+        },
+      });
+    } catch (error) {
+      console.error(
+        'Doctor payment submission error:',
+        error
+      );
+
       next(error);
     }
   }
@@ -487,7 +1021,8 @@ router.get(
       if (req.admin) {
         return res.status(403).json({
           success: false,
-          message: 'Doctor notifications are not available to admins.',
+          message:
+            'Doctor notifications are not available to admins.',
         });
       }
 
@@ -504,22 +1039,37 @@ router.get(
 
       const notifications =
         await Notification.find({
-          doctorId: req.user._id,
-          readAt: null,
-          dismissedAt: null,
+          doctorId:
+            req.user._id,
+
+          readAt:
+            null,
+
+          dismissedAt:
+            null,
         })
-          .sort({ createdAt: -1 })
+          .sort({
+            createdAt: -1,
+          })
           .limit(20);
 
       res.json({
         success: true,
-        data: notifications,
+
+        data:
+          notifications,
       });
     } catch (error) {
       next(error);
     }
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| MARK NOTIFICATION AS READ
+|--------------------------------------------------------------------------
+*/
 
 router.patch(
   '/notifications/:id/read',
@@ -529,36 +1079,56 @@ router.patch(
       if (req.admin) {
         return res.status(403).json({
           success: false,
-          message: 'Doctor notifications are not available to admins.',
+          message:
+            'Doctor notifications are not available to admins.',
         });
       }
 
       const notification =
         await Notification.findOneAndUpdate(
           {
-            _id: req.params.id,
-            doctorId: req.user._id,
+            _id:
+              req.params.id,
+
+            doctorId:
+              req.user._id,
           },
-          { readAt: new Date() },
-          { new: true }
+
+          {
+            readAt:
+              new Date(),
+          },
+
+          {
+            new: true,
+          }
         );
 
       if (!notification) {
         return res.status(404).json({
           success: false,
-          message: 'Notification not found.',
+          message:
+            'Notification not found.',
         });
       }
 
       res.json({
         success: true,
-        data: notification,
+
+        data:
+          notification,
       });
     } catch (error) {
       next(error);
     }
   }
 );
+
+/*
+|--------------------------------------------------------------------------
+| DELETE / DISMISS NOTIFICATION
+|--------------------------------------------------------------------------
+*/
 
 router.delete(
   '/notifications/:id',
@@ -568,20 +1138,29 @@ router.delete(
       if (req.admin) {
         return res.status(403).json({
           success: false,
-          message: 'Doctor notifications are not available to admins.',
+          message:
+            'Doctor notifications are not available to admins.',
         });
       }
 
       const notification =
         await Notification.findOneAndUpdate(
           {
-            _id: req.params.id,
-            doctorId: req.user._id,
-            dismissedAt: null,
+            _id:
+              req.params.id,
+
+            doctorId:
+              req.user._id,
+
+            dismissedAt:
+              null,
           },
+
           {
-            dismissedAt: new Date(),
+            dismissedAt:
+              new Date(),
           },
+
           {
             new: true,
           }
@@ -590,13 +1169,16 @@ router.delete(
       if (!notification) {
         return res.status(404).json({
           success: false,
-          message: 'Notification not found.',
+          message:
+            'Notification not found.',
         });
       }
 
       res.json({
         success: true,
-        message: 'Notification deleted.',
+
+        message:
+          'Notification deleted.',
       });
     } catch (error) {
       next(error);
@@ -608,10 +1190,9 @@ router.delete(
 |--------------------------------------------------------------------------
 | ME
 |--------------------------------------------------------------------------
-| Always fetch the latest account from MongoDB.
 |
-| This is important because admin can change payment/access
-| information while the doctor app is already logged in.
+| Always fetch latest account from MongoDB.
+|
 |--------------------------------------------------------------------------
 */
 
@@ -620,17 +1201,21 @@ router.get(
   auth,
   async (req, res, next) => {
     try {
-      const Model = req.admin
-        ? Admin
-        : Doctor;
+      const Model =
+        req.admin
+          ? Admin
+          : Doctor;
 
       const account =
-        await Model.findById(req.user._id);
+        await Model.findById(
+          req.user._id
+        );
 
       if (!account) {
         return res.status(404).json({
           success: false,
-          message: 'Account not found.',
+          message:
+            'Account not found.',
         });
       }
 
@@ -641,7 +1226,8 @@ router.get(
       */
 
       if (!req.admin) {
-        let changed = false;
+        let changed =
+          false;
 
         const startDate =
           account.accessStartDate ||
@@ -649,28 +1235,37 @@ router.get(
           account.createdAt ||
           new Date();
 
-        if (!account.registrationDate) {
+        if (
+          !account.registrationDate
+        ) {
           account.registrationDate =
-            account.createdAt || new Date();
+            account.createdAt ||
+            new Date();
 
           changed = true;
         }
 
-        if (!account.accessStartDate) {
+        if (
+          !account.accessStartDate
+        ) {
           account.accessStartDate =
             startDate;
 
           changed = true;
         }
 
-        if (!account.paymentStatus) {
+        if (
+          !account.paymentStatus
+        ) {
           account.paymentStatus =
             'pending';
 
           changed = true;
         }
 
-        if (!account.nextPaymentDate) {
+        if (
+          !account.nextPaymentDate
+        ) {
           account.nextPaymentDate =
             addOneMonth(
               account.accessStartDate
@@ -729,6 +1324,16 @@ router.get(
           changed = true;
         }
 
+        /*
+        |--------------------------------------------------------------------------
+        | Older doctor accounts
+        |--------------------------------------------------------------------------
+        |
+        | pendingPayment is optional, so no database migration
+        | is required here.
+        |
+        */
+
         if (changed) {
           await account.save();
         }
@@ -738,20 +1343,24 @@ router.get(
         );
       }
 
-      const cleaned = clean(account);
+      const cleaned =
+        clean(account);
 
       return res.json({
         success: true,
 
-        role: req.admin
-          ? 'admin'
-          : 'doctor',
+        role:
+          req.admin
+            ? 'admin'
+            : 'doctor',
 
-        user: cleaned,
+        user:
+          cleaned,
 
-        doctor: req.admin
-          ? null
-          : cleaned,
+        doctor:
+          req.admin
+            ? null
+            : cleaned,
       });
     } catch (e) {
       next(e);
@@ -785,9 +1394,11 @@ router.put(
         'signature',
       ].forEach((key) => {
         if (
-          req.body[key] !== undefined
+          req.body[key] !==
+          undefined
         ) {
-          data[key] = req.body[key];
+          data[key] =
+            req.body[key];
         }
       });
 
@@ -817,17 +1428,24 @@ router.put(
             data,
             {
               new: true,
-              runValidators: true,
+              runValidators:
+                true,
             }
           )
-          .select('-password');
+          .select(
+            '-password'
+          );
 
       res.json({
         success: true,
-        user: updated,
-        doctor: req.admin
-          ? null
-          : updated,
+
+        user:
+          updated,
+
+        doctor:
+          req.admin
+            ? null
+            : updated,
       });
     } catch (e) {
       next(e);

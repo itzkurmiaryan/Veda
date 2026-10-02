@@ -1,12 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+
 import {
   Alert,
   Image,
   Modal,
-  Pressable,
   Platform,
+  Pressable,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -21,16 +23,17 @@ import {
   FadeIn,
   Loading,
   Screen,
-  colors,
 } from '../components/UI';
 
 import PaymentSummaryCard from '../components/PaymentSummaryCard';
 
 import { useAuth } from '../context/AuthContext';
+
 import {
   PaymentEntryModal,
   PaymentHistoryModal,
 } from './AdminDashboardComponents';
+
 import adminStyles from './AdminDashboardStyles';
 
 
@@ -41,11 +44,18 @@ import adminStyles from './AdminDashboardStyles';
 const formatNumber = (value) =>
   new Intl.NumberFormat('en-IN').format(Number(value || 0));
 
+
 const formatDate = (value) => {
   if (!value) return '—';
 
   try {
-    return new Date(value).toLocaleDateString('en-IN', {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+
+    return date.toLocaleDateString('en-IN', {
       day: '2-digit',
       month: 'short',
       year: 'numeric',
@@ -54,6 +64,30 @@ const formatDate = (value) => {
     return '—';
   }
 };
+
+
+const formatDateTime = (value) => {
+  if (!value) return '—';
+
+  try {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) {
+      return '—';
+    }
+
+    return date.toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
+  } catch {
+    return '—';
+  }
+};
+
 
 const getInitials = (name = 'Doctor') => {
   const parts = String(name).trim().split(/\s+/);
@@ -80,7 +114,9 @@ function StatCard({
     <Card style={styles.statCard}>
       <View style={styles.statTop}>
         <View style={styles.statIcon}>
-          <Text style={styles.statIconText}>{icon}</Text>
+          <Text style={styles.statIconText}>
+            {icon}
+          </Text>
         </View>
 
         <Text style={styles.statLabel}>
@@ -104,7 +140,10 @@ function StatCard({
    PROFILE ROW
 ========================================================= */
 
-function ProfileRow({ label, value }) {
+function ProfileRow({
+  label,
+  value,
+}) {
   return (
     <View style={styles.profileRow}>
       <Text style={styles.profileLabel}>
@@ -134,12 +173,18 @@ function ActivityBar({
 
   const patientWidth =
     maxValue > 0
-      ? Math.max((patients / maxValue) * 100, patients > 0 ? 4 : 0)
+      ? Math.max(
+          (patients / maxValue) * 100,
+          patients > 0 ? 4 : 0
+        )
       : 0;
 
   const visitWidth =
     maxValue > 0
-      ? Math.max((visits / maxValue) * 100, visits > 0 ? 4 : 0)
+      ? Math.max(
+          (visits / maxValue) * 100,
+          visits > 0 ? 4 : 0
+        )
       : 0;
 
   return (
@@ -153,7 +198,9 @@ function ActivityBar({
           <View
             style={[
               styles.patientBar,
-              { width: `${patientWidth}%` },
+              {
+                width: `${patientWidth}%`,
+              },
             ]}
           />
         </View>
@@ -162,7 +209,9 @@ function ActivityBar({
           <View
             style={[
               styles.visitBar,
-              { width: `${visitWidth}%` },
+              {
+                width: `${visitWidth}%`,
+              },
             ]}
           />
         </View>
@@ -186,7 +235,9 @@ function ActivityBar({
    EMPTY STATE
 ========================================================= */
 
-function EmptyState({ text }) {
+function EmptyState({
+  text,
+}) {
   return (
     <View style={styles.emptyState}>
       <Text style={styles.emptyTitle}>
@@ -202,6 +253,305 @@ function EmptyState({ text }) {
 
 
 /* =========================================================
+   PENDING PAYMENT CARD
+========================================================= */
+
+function PendingPaymentCard({
+  pendingPayment,
+  onViewProof,
+  onVerify,
+  onReject,
+  busy,
+}) {
+  if (!pendingPayment) {
+    return null;
+  }
+
+  const isPending =
+    pendingPayment.status === 'pending';
+
+  const isRejected =
+    pendingPayment.status === 'rejected';
+
+  return (
+    <Card
+      style={[
+        styles.pendingPaymentCard,
+        isRejected && styles.rejectedPaymentCard,
+      ]}
+    >
+      {/* HEADER */}
+
+      <View style={styles.pendingPaymentHeader}>
+        <View style={styles.pendingPaymentTitleWrap}>
+          <View
+            style={[
+              styles.pendingPaymentIcon,
+              isRejected
+                ? styles.rejectedIcon
+                : styles.pendingIcon,
+            ]}
+          >
+            <Text
+              style={[
+                styles.pendingPaymentIconText,
+                isRejected
+                  ? styles.rejectedIconText
+                  : styles.pendingIconText,
+              ]}
+            >
+              ₹
+            </Text>
+          </View>
+
+          <View style={styles.pendingPaymentHeading}>
+            <Text style={styles.pendingPaymentEyebrow}>
+              {isRejected
+                ? 'PAYMENT REJECTED'
+                : 'PAYMENT VERIFICATION'}
+            </Text>
+
+            <Text style={styles.pendingPaymentTitle}>
+              {isRejected
+                ? 'Payment needs resubmission'
+                : 'Doctor submitted a payment'}
+            </Text>
+          </View>
+        </View>
+
+        <View
+          style={[
+            styles.pendingStatusBadge,
+            isRejected
+              ? styles.rejectedStatusBadge
+              : styles.pendingStatusBadge,
+          ]}
+        >
+          <Text
+            style={[
+              styles.pendingStatusText,
+              isRejected
+                ? styles.rejectedStatusText
+                : styles.pendingStatusText,
+            ]}
+          >
+            {isRejected
+              ? 'REJECTED'
+              : 'PENDING'}
+          </Text>
+        </View>
+      </View>
+
+
+      {/* PAYMENT AMOUNT */}
+
+      <View style={styles.pendingAmountPanel}>
+        <Text style={styles.pendingAmountLabel}>
+          SUBMITTED AMOUNT
+        </Text>
+
+        <Text style={styles.pendingAmount}>
+          ₹{formatNumber(pendingPayment.amount)}
+        </Text>
+
+        <Text style={styles.pendingAmountSubtext}>
+          {Number(pendingPayment.monthsPaid || 0)}{' '}
+          month
+          {Number(pendingPayment.monthsPaid || 0) === 1
+            ? ''
+            : 's'}{' '}
+          subscription
+        </Text>
+      </View>
+
+
+      {/* DETAILS */}
+
+      <View style={styles.pendingDetailsGrid}>
+
+        <View style={styles.pendingDetailItem}>
+          <Text style={styles.pendingDetailLabel}>
+            TRANSACTION / UTR
+          </Text>
+
+          <Text
+            style={styles.pendingDetailValue}
+            selectable
+          >
+            {pendingPayment.transactionId ||
+              'Not provided'}
+          </Text>
+        </View>
+
+
+        <View style={styles.pendingDetailItem}>
+          <Text style={styles.pendingDetailLabel}>
+            SUBMITTED
+          </Text>
+
+          <Text style={styles.pendingDetailValue}>
+            {formatDateTime(
+              pendingPayment.submittedAt
+            )}
+          </Text>
+        </View>
+
+
+        <View style={styles.pendingDetailItem}>
+          <Text style={styles.pendingDetailLabel}>
+            MONTHS PAID
+          </Text>
+
+          <Text style={styles.pendingDetailValue}>
+            {pendingPayment.monthsPaid || 0}
+          </Text>
+        </View>
+
+
+        <View style={styles.pendingDetailItem}>
+          <Text style={styles.pendingDetailLabel}>
+            SCREENSHOT
+          </Text>
+
+          <Text
+            style={[
+              styles.pendingDetailValue,
+              pendingPayment.paymentProof?.available
+                ? styles.proofAvailableText
+                : styles.proofMissingText,
+            ]}
+          >
+            {pendingPayment.paymentProof?.available
+              ? 'Attached'
+              : 'Not attached'}
+          </Text>
+        </View>
+
+      </View>
+
+
+      {/* DOCTOR NOTE */}
+
+      {pendingPayment.note ? (
+        <View style={styles.doctorPaymentNote}>
+          <Text style={styles.pendingDetailLabel}>
+            DOCTOR NOTE
+          </Text>
+
+          <Text style={styles.doctorPaymentNoteText}>
+            {pendingPayment.note}
+          </Text>
+        </View>
+      ) : null}
+
+
+      {/* ADMIN REJECTION NOTE */}
+
+      {isRejected &&
+      pendingPayment.adminNote ? (
+        <View style={styles.adminRejectionNote}>
+          <Text style={styles.adminRejectionLabel}>
+            ADMIN NOTE
+          </Text>
+
+          <Text style={styles.adminRejectionText}>
+            {pendingPayment.adminNote}
+          </Text>
+
+          {pendingPayment.reviewedAt ? (
+            <Text style={styles.reviewedAtText}>
+              Reviewed: {formatDateTime(
+                pendingPayment.reviewedAt
+              )}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
+
+
+      {/* SCREENSHOT BUTTON */}
+
+      {pendingPayment.paymentProof?.available ? (
+        <Pressable
+          onPress={onViewProof}
+          disabled={busy}
+          style={({ pressed }) => [
+            styles.viewPendingProofButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.viewPendingProofIcon}>
+            ▣
+          </Text>
+
+          <View style={styles.viewPendingProofTextWrap}>
+            <Text style={styles.viewPendingProofTitle}>
+              View Payment Screenshot
+            </Text>
+
+            <Text style={styles.viewPendingProofSubtext}>
+              Open the screenshot submitted by the doctor
+            </Text>
+          </View>
+
+          <Text style={styles.viewPendingProofArrow}>
+            ›
+          </Text>
+        </Pressable>
+      ) : null}
+
+
+      {/* ACTIONS */}
+
+      {isPending ? (
+        <View style={styles.pendingPaymentActions}>
+
+          <View style={styles.pendingActionHalf}>
+            <Pressable
+              onPress={onReject}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.rejectPaymentButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.rejectPaymentButtonText}>
+                Reject Payment
+              </Text>
+            </Pressable>
+          </View>
+
+
+          <View style={styles.pendingActionHalf}>
+            <Pressable
+              onPress={onVerify}
+              disabled={busy}
+              style={({ pressed }) => [
+                styles.verifyPaymentButton,
+                pressed && styles.pressed,
+              ]}
+            >
+              <Text style={styles.verifyPaymentButtonText}>
+                Verify Payment
+              </Text>
+            </Pressable>
+          </View>
+
+        </View>
+      ) : (
+        <View style={styles.rejectedBottomInfo}>
+          <Text style={styles.rejectedBottomText}>
+            Doctor can submit a new payment after rejection.
+          </Text>
+        </View>
+      )}
+
+    </Card>
+  );
+}
+
+
+/* =========================================================
    MAIN SCREEN
 ========================================================= */
 
@@ -209,7 +559,9 @@ export default function AdminDoctorDashboard({
   navigation,
   route,
 }) {
-  const { doctor: selectedDoctor } = route.params || {};
+  const {
+    doctor: selectedDoctor,
+  } = route.params || {};
 
   const {
     startAction,
@@ -217,26 +569,91 @@ export default function AdminDoctorDashboard({
     actionLoading,
   } = useAuth();
 
+
   const [doctor, setDoctor] = useState(
     selectedDoctor || null
   );
-  const [accessRequest, setAccessRequest] = useState(null);
-  const [detailTab, setDetailTab] = useState('overview');
 
-  const [analytics, setAnalytics] = useState(null);
+  const [accessRequest, setAccessRequest] =
+    useState(null);
 
-  const [loading, setLoading] = useState(true);
+  const [detailTab, setDetailTab] =
+    useState('overview');
 
-  const [error, setError] = useState('');
-  const [paymentEntryOpen, setPaymentEntryOpen] = useState(false);
-  const [paymentHistoryOpen, setPaymentHistoryOpen] = useState(false);
-  const [paymentMode, setPaymentMode] = useState(null);
-  const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMonthsPaid, setPaymentMonthsPaid] = useState('1');
-  const [paymentTransactionId, setPaymentTransactionId] = useState('');
-  const [paymentNote, setPaymentNote] = useState('');
-  const [paymentProof, setPaymentProof] = useState(null);
-  const [proofPreview, setProofPreview] = useState(null);
+  const [analytics, setAnalytics] =
+    useState(null);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState('');
+
+
+  /* =======================================================
+     MANUAL PAYMENT STATES
+  ======================================================= */
+
+  const [
+    paymentEntryOpen,
+    setPaymentEntryOpen,
+  ] = useState(false);
+
+  const [
+    paymentHistoryOpen,
+    setPaymentHistoryOpen,
+  ] = useState(false);
+
+  const [
+    paymentMode,
+    setPaymentMode,
+  ] = useState(null);
+
+  const [
+    paymentAmount,
+    setPaymentAmount,
+  ] = useState('');
+
+  const [
+    paymentMonthsPaid,
+    setPaymentMonthsPaid,
+  ] = useState('1');
+
+  const [
+    paymentTransactionId,
+    setPaymentTransactionId,
+  ] = useState('');
+
+  const [
+    paymentNote,
+    setPaymentNote,
+  ] = useState('');
+
+  const [
+    paymentProof,
+    setPaymentProof,
+  ] = useState(null);
+
+  const [
+    proofPreview,
+    setProofPreview,
+  ] = useState(null);
+
+
+  /* =======================================================
+     REJECTION MODAL
+  ======================================================= */
+
+  const [
+    rejectPaymentOpen,
+    setRejectPaymentOpen,
+  ] = useState(false);
+
+  const [
+    rejectionNote,
+    setRejectionNote,
+  ] = useState('');
+
 
   const doctorId =
     selectedDoctor?._id ||
@@ -244,13 +661,15 @@ export default function AdminDoctorDashboard({
 
 
   /* =======================================================
-     LOAD DOCTOR ANALYTICS
+     LOAD DOCTOR ANALYTICS + DOCTOR
   ======================================================= */
 
   const loadDoctorAnalytics = useCallback(
     async () => {
       if (!doctorId) {
-        setError('Doctor information is missing.');
+        setError(
+          'Doctor information is missing.'
+        );
         setLoading(false);
         return;
       }
@@ -259,49 +678,70 @@ export default function AdminDoctorDashboard({
         setError('');
         setLoading(true);
 
-        const [response, doctorResponse, accessResponse] =
-          await Promise.all([
-            api.get(
-              `/analytics/doctors/${doctorId}`
-            ),
-            api.get(
-              `/admin/doctors/${doctorId}`
-            ),
-            api.get('/admin/access-requests'),
-          ]);
+        const [
+          response,
+          doctorResponse,
+          accessResponse,
+        ] = await Promise.all([
+          api.get(
+            `/analytics/doctors/${doctorId}`
+          ),
 
-        const payload = response?.data;
+          api.get(
+            `/admin/doctors/${doctorId}`
+          ),
+
+          api.get(
+            '/admin/access-requests'
+          ),
+        ]);
+
+
+        const payload =
+          response?.data;
+
 
         if (!payload?.success) {
           throw new Error(
             payload?.message ||
-            'Unable to load doctor analytics'
+              'Unable to load doctor analytics'
           );
         }
 
-        setDoctor(
+
+        const updatedDoctor =
           doctorResponse?.data?.data ||
           payload.doctor ||
           selectedDoctor ||
-          null
-        );
+          null;
+
+
+        setDoctor(updatedDoctor);
+
 
         const requests =
           accessResponse?.data?.data || [];
+
+
         setAccessRequest(
           requests.find((request) => {
             const requestDoctorId =
               typeof request.doctorId === 'object'
                 ? request.doctorId?._id
                 : request.doctorId;
-            return String(requestDoctorId) === String(doctorId);
+
+            return (
+              String(requestDoctorId) ===
+              String(doctorId)
+            );
           }) || null
         );
 
+
         setAnalytics(
-          payload.data ||
-          null
+          payload.data || null
         );
+
       } catch (err) {
         console.error(
           'DOCTOR ANALYTICS ERROR:',
@@ -310,8 +750,8 @@ export default function AdminDoctorDashboard({
 
         setError(
           err?.response?.data?.message ||
-          err?.message ||
-          'Unable to load doctor analytics.'
+            err?.message ||
+            'Unable to load doctor analytics.'
         );
       } finally {
         setLoading(false);
@@ -342,18 +782,18 @@ export default function AdminDoctorDashboard({
     return patients.map((item, index) => ({
       date: item.date,
       patients: item.count || 0,
-      visits: visits[index]?.count || 0,
+      visits:
+        visits[index]?.count || 0,
     }));
   }, [analytics]);
 
 
   const maxDailyValue = useMemo(() => {
-    const values = dailyData.flatMap(
-      (item) => [
+    const values =
+      dailyData.flatMap((item) => [
         Number(item.patients || 0),
         Number(item.visits || 0),
-      ]
-    );
+      ]);
 
     return Math.max(
       ...values,
@@ -374,18 +814,18 @@ export default function AdminDoctorDashboard({
     return patients.map((item, index) => ({
       date: item.date,
       patients: item.count || 0,
-      visits: visits[index]?.count || 0,
+      visits:
+        visits[index]?.count || 0,
     }));
   }, [analytics]);
 
 
   const maxMonthlyValue = useMemo(() => {
-    const values = monthlyData.flatMap(
-      (item) => [
+    const values =
+      monthlyData.flatMap((item) => [
         Number(item.patients || 0),
         Number(item.visits || 0),
-      ]
-    );
+      ]);
 
     return Math.max(
       ...values,
@@ -393,13 +833,31 @@ export default function AdminDoctorDashboard({
     );
   }, [monthlyData]);
 
-  const showPaymentMessage = (title, message) => {
+
+  /* =======================================================
+     MESSAGE HELPER
+  ======================================================= */
+
+  const showPaymentMessage = (
+    title,
+    message
+  ) => {
     if (Platform.OS === 'web') {
-      globalThis.alert(`${title}\n\n${message}`);
+      globalThis.alert(
+        `${title}\n\n${message}`
+      );
     } else {
-      Alert.alert(title, message);
+      Alert.alert(
+        title,
+        message
+      );
     }
   };
+
+
+  /* =======================================================
+     MANUAL PAYMENT
+  ======================================================= */
 
   const openPaymentEntry = () => {
     setPaymentMode(null);
@@ -411,66 +869,113 @@ export default function AdminDoctorDashboard({
     setPaymentEntryOpen(true);
   };
 
+
   const choosePaymentProof = async () => {
     try {
       const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
+        await ImagePicker
+          .requestMediaLibraryPermissionsAsync();
+
+
       if (!permission.granted) {
-        throw new Error('Allow photo access to attach a screenshot.');
+        throw new Error(
+          'Allow photo access to attach a screenshot.'
+        );
       }
+
 
       const result =
-        await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ['images'],
-          allowsEditing: false,
-          quality: 0.45,
-        });
-      if (result.canceled) return;
+        await ImagePicker
+          .launchImageLibraryAsync({
+            mediaTypes: ['images'],
+            allowsEditing: false,
+            quality: 0.45,
+          });
 
-      const image = result.assets?.[0];
-      if (!image?.uri) {
-        throw new Error('Select a valid screenshot.');
+
+      if (result.canceled) {
+        return;
       }
+
+
+      const image =
+        result.assets?.[0];
+
+
+      if (!image?.uri) {
+        throw new Error(
+          'Select a valid screenshot.'
+        );
+      }
+
 
       const resizeAction =
         image.width >= image.height
-          ? { resize: { width: 1000 } }
-          : { resize: { height: 1000 } };
+          ? {
+              resize: {
+                width: 1000,
+              },
+            }
+          : {
+              resize: {
+                height: 1000,
+              },
+            };
+
+
       const compressed =
-        await ImageManipulator.manipulateAsync(
-          image.uri,
-          [resizeAction],
-          {
-            compress: 0.4,
-            format: ImageManipulator.SaveFormat.JPEG,
-            base64: true,
-          }
-        );
+        await ImageManipulator
+          .manipulateAsync(
+            image.uri,
+            [resizeAction],
+            {
+              compress: 0.4,
+              format:
+                ImageManipulator.SaveFormat
+                  .JPEG,
+              base64: true,
+            }
+          );
+
 
       if (
         !compressed.base64 ||
-        compressed.base64.length > 1400000
+        compressed.base64.length >
+          1400000
       ) {
-        throw new Error('Screenshot is too large. Choose a smaller image.');
+        throw new Error(
+          'Screenshot is too large. Choose a smaller image.'
+        );
       }
+
 
       setPaymentProof({
         data: compressed.base64,
         contentType: 'image/jpeg',
-        fileName: image.fileName || 'payment-proof.jpg',
+        fileName:
+          image.fileName ||
+          'payment-proof.jpg',
         uri: compressed.uri,
       });
+
     } catch (requestError) {
       showPaymentMessage(
         'Unable to select screenshot',
-        requestError.message || 'Please try another image.'
+        requestError.message ||
+          'Please try another image.'
       );
     }
   };
 
+
   const submitPaidPayment = async () => {
-    const amount = Number(paymentAmount);
-    const monthsPaid = Number(paymentMonthsPaid);
+    const amount =
+      Number(paymentAmount);
+
+    const monthsPaid =
+      Number(paymentMonthsPaid);
+
+
     if (
       !doctor?._id ||
       !Number.isFinite(amount) ||
@@ -479,43 +984,72 @@ export default function AdminDoctorDashboard({
       monthsPaid < 1 ||
       monthsPaid > 24
     ) {
+      showPaymentMessage(
+        'Invalid payment',
+        'Enter a valid amount and months paid between 1 and 24.'
+      );
       return;
     }
 
+
     try {
-      startAction('Saving payment...', 'Recording the doctor payment details.');
-      const response = await api.patch(
-        `/admin/doctors/${doctor._id}/payment`,
-        {
-          status: 'paid',
-          amount,
-          monthsPaid,
-          transactionId: paymentTransactionId.trim(),
-          note: paymentNote.trim(),
-          paymentProof: paymentProof
-            ? {
-                data: paymentProof.data,
-                contentType: paymentProof.contentType,
-                fileName: paymentProof.fileName,
-              }
-            : null,
-        }
+      startAction(
+        'Saving payment...',
+        'Recording the doctor payment details.'
       );
-      const updated = response?.data?.data;
+
+
+      const response =
+        await api.patch(
+          `/admin/doctors/${doctor._id}/payment`,
+          {
+            status: 'paid',
+            amount,
+            monthsPaid,
+            transactionId:
+              paymentTransactionId.trim(),
+            note:
+              paymentNote.trim(),
+            paymentProof:
+              paymentProof
+                ? {
+                    data:
+                      paymentProof.data,
+                    contentType:
+                      paymentProof.contentType,
+                    fileName:
+                      paymentProof.fileName,
+                  }
+                : null,
+          }
+        );
+
+
+      const updated =
+        response?.data?.data;
+
+
       if (
-        updated?.paymentStatus !== 'paid' ||
+        updated?.paymentStatus !==
+          'paid' ||
         (updated?.paymentHistory?.length || 0) <=
           (doctor.paymentHistory?.length || 0)
       ) {
-        throw new Error('The server did not confirm the payment record.');
+        throw new Error(
+          'The server did not confirm the payment record.'
+        );
       }
+
 
       setDoctor(updated);
       setPaymentEntryOpen(false);
+
+
       showPaymentMessage(
         'Payment recorded',
         `₹${amount} recorded for ${monthsPaid} month(s).`
       );
+
     } catch (requestError) {
       showPaymentMessage(
         'Payment update failed',
@@ -528,21 +1062,50 @@ export default function AdminDoctorDashboard({
     }
   };
 
+
   const submitUnpaidStatus = async () => {
     if (!doctor?._id) return;
+
+
     try {
-      startAction('Updating payment...', 'Keeping the doctor marked unpaid.');
-      const response = await api.patch(
-        `/admin/doctors/${doctor._id}/payment`,
-        { status: 'unpaid' }
+      startAction(
+        'Updating payment...',
+        'Keeping the doctor marked unpaid.'
       );
-      const updated = response?.data?.data;
-      if (updated?.paymentStatus !== 'pending') {
-        throw new Error('The server did not confirm unpaid status.');
+
+
+      const response =
+        await api.patch(
+          `/admin/doctors/${doctor._id}/payment`,
+          {
+            status: 'unpaid',
+          }
+        );
+
+
+      const updated =
+        response?.data?.data;
+
+
+      if (
+        updated?.paymentStatus !==
+        'pending'
+      ) {
+        throw new Error(
+          'The server did not confirm unpaid status.'
+        );
       }
+
+
       setDoctor(updated);
       setPaymentEntryOpen(false);
-      showPaymentMessage('Payment unpaid', 'No payment record was added.');
+
+
+      showPaymentMessage(
+        'Payment unpaid',
+        'No payment record was added.'
+      );
+
     } catch (requestError) {
       showPaymentMessage(
         'Payment update failed',
@@ -555,19 +1118,53 @@ export default function AdminDoctorDashboard({
     }
   };
 
-  const openPaymentProof = async (record) => {
-    if (!doctor?._id || !record?._id) return;
+
+  /* =======================================================
+     VERIFIED PAYMENT PROOF
+  ======================================================= */
+
+  const openPaymentProof = async (
+    record
+  ) => {
+    if (
+      !doctor?._id ||
+      !record?._id
+    ) {
+      return;
+    }
+
+
     try {
-      startAction('Loading screenshot...', 'Fetching the saved payment proof.');
-      const response = await api.get(
-        `/admin/doctors/${doctor._id}/payments/${record._id}/proof`
+      startAction(
+        'Loading screenshot...',
+        'Fetching the saved payment proof.'
       );
-      const proof = response?.data?.data;
-      if (!proof?.data) throw new Error('Screenshot is unavailable.');
+
+
+      const response =
+        await api.get(
+          `/admin/doctors/${doctor._id}/payments/${record._id}/proof`
+        );
+
+
+      const proof =
+        response?.data?.data;
+
+
+      if (!proof?.data) {
+        throw new Error(
+          'Screenshot is unavailable.'
+        );
+      }
+
+
       setProofPreview({
-        uri: `data:${proof.contentType};base64,${proof.data}`,
-        fileName: proof.fileName,
+        uri:
+          `data:${proof.contentType};base64,${proof.data}`,
+        fileName:
+          proof.fileName,
       });
+
     } catch (requestError) {
       showPaymentMessage(
         'Unable to open screenshot',
@@ -580,21 +1177,53 @@ export default function AdminDoctorDashboard({
     }
   };
 
-  const deletePaymentRecord = (record) => {
-    if (!doctor?._id || !record?._id) return;
 
-    const removeRecord = async () => {
+  /* =======================================================
+     PENDING PAYMENT PROOF
+  ======================================================= */
+
+  const openPendingPaymentProof =
+    async () => {
+      if (!doctor?._id) {
+        return;
+      }
+
+
       try {
-        startAction('Deleting payment record...', 'Updating payment history.');
-        const response = await api.delete(
-          `/admin/doctors/${doctor._id}/payments/${record._id}`
+        startAction(
+          'Loading screenshot...',
+          'Fetching the doctor payment screenshot.'
         );
-        if (response?.data?.data) {
-          setDoctor(response.data.data);
+
+
+        const response =
+          await api.get(
+            `/admin/doctors/${doctor._id}/payment-pending-proof`
+          );
+
+
+        const proof =
+          response?.data?.data;
+
+
+        if (!proof?.data) {
+          throw new Error(
+            'Pending payment screenshot is unavailable.'
+          );
         }
+
+
+        setProofPreview({
+          uri:
+            `data:${proof.contentType || 'image/jpeg'};base64,${proof.data}`,
+          fileName:
+            proof.fileName ||
+            'pending-payment.jpg',
+        });
+
       } catch (requestError) {
         showPaymentMessage(
-          'Unable to delete payment',
+          'Unable to open screenshot',
           requestError.response?.data?.message ||
             requestError.message ||
             'Please try again.'
@@ -604,187 +1233,544 @@ export default function AdminDoctorDashboard({
       }
     };
 
-    const message =
-      'Delete this payment record? Revenue and current payment status will be recalculated.';
-    if (Platform.OS === 'web') {
-      if (globalThis.confirm(message)) removeRecord();
-      return;
-    }
 
-    Alert.alert('Delete payment record?', message, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: removeRecord },
-    ]);
-  };
+  /* =======================================================
+     VERIFY PENDING PAYMENT
+  ======================================================= */
 
-  const reviewAccessRequest = async (action) => {
-    if (!accessRequest?._id) return;
-    try {
-      startAction(
-        action === 'approve'
-          ? 'Approving access request...'
-          : 'Rejecting access request...',
-        'Updating this doctor’s access request.'
-      );
-      const response = await api.post(
-        `/admin/access-requests/${accessRequest._id}/${action}`
-      );
-      setAccessRequest(null);
-      const updatedDoctor = response?.data?.data;
-      if (updatedDoctor?._id === doctor?._id) {
-        setDoctor(updatedDoctor);
+  const verifyPendingPayment =
+    async () => {
+      if (
+        !doctor?._id ||
+        doctor.pendingPayment?.status !==
+          'pending'
+      ) {
+        return;
       }
-      showPaymentMessage(
-        action === 'approve'
-          ? 'Access approved'
-          : 'Access request rejected',
-        doctor?.name || 'Doctor access request updated.'
-      );
-    } catch (requestError) {
-      showPaymentMessage(
-        'Access request failed',
-        requestError.response?.data?.message ||
-          requestError.message ||
-          'Unable to update access request.'
-      );
-    } finally {
-      stopAction();
-    }
-  };
 
-  const viewAccessRequestProof = async () => {
-    if (!accessRequest?._id) return;
-    try {
-      startAction('Loading screenshot...', 'Fetching the attached proof.');
-      const response = await api.get(
-        `/admin/access-requests/${accessRequest._id}/payment-proof`
+
+      const amount =
+        Number(
+          doctor.pendingPayment.amount || 0
+        );
+
+      const months =
+        Number(
+          doctor.pendingPayment.monthsPaid || 0
+        );
+
+
+      const verify = async () => {
+        try {
+          startAction(
+            'Verifying payment...',
+            'Adding the submitted payment to the doctor billing history.'
+          );
+
+
+          const response =
+            await api.post(
+              `/admin/doctors/${doctor._id}/payment/verify`,
+              {}
+            );
+
+
+          const updated =
+            response?.data?.data;
+
+
+          if (!updated) {
+            throw new Error(
+              'Server did not return the updated doctor.'
+            );
+          }
+
+
+          setDoctor(updated);
+
+
+          showPaymentMessage(
+            'Payment verified',
+            `₹${formatNumber(amount)} for ${months} month(s) has been verified successfully.`
+          );
+
+        } catch (requestError) {
+          showPaymentMessage(
+            'Verification failed',
+            requestError.response?.data?.message ||
+              requestError.message ||
+              'Unable to verify payment.'
+          );
+        } finally {
+          stopAction();
+        }
+      };
+
+
+      if (Platform.OS === 'web') {
+        const confirmed =
+          globalThis.confirm(
+            `Verify ₹${formatNumber(amount)} payment for ${months} month(s)?\n\nThis will add the payment to the verified payment history.`
+          );
+
+        if (confirmed) {
+          verify();
+        }
+
+        return;
+      }
+
+
+      Alert.alert(
+        'Verify Payment?',
+        `Verify ₹${formatNumber(amount)} for ${months} month(s)?\n\nThis payment will be added to the doctor's verified payment history.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Verify',
+            onPress: verify,
+          },
+        ]
       );
-      const proof = response?.data?.data;
-      if (!proof?.data) throw new Error('Screenshot is unavailable.');
-      setProofPreview({
-        uri: `data:${proof.contentType};base64,${proof.data}`,
-        fileName: proof.fileName || 'Payment screenshot',
-      });
-    } catch (requestError) {
-      showPaymentMessage(
-        'Unable to open screenshot',
-        requestError.response?.data?.message ||
-          requestError.message ||
-          'Please try again.'
+    };
+
+
+  /* =======================================================
+     OPEN REJECTION
+  ======================================================= */
+
+  const openRejectPayment =
+    () => {
+      if (
+        doctor?.pendingPayment?.status !==
+        'pending'
+      ) {
+        return;
+      }
+
+      setRejectionNote('');
+      setRejectPaymentOpen(true);
+    };
+
+
+  /* =======================================================
+     REJECT PENDING PAYMENT
+  ======================================================= */
+
+  const rejectPendingPayment =
+    async () => {
+      if (
+        !doctor?._id ||
+        doctor.pendingPayment?.status !==
+          'pending'
+      ) {
+        return;
+      }
+
+
+      const note =
+        rejectionNote.trim();
+
+
+      if (!note) {
+        showPaymentMessage(
+          'Admin note required',
+          'Please enter a reason for rejecting this payment.'
+        );
+        return;
+      }
+
+
+      try {
+        startAction(
+          'Rejecting payment...',
+          'Saving the rejection reason for the doctor.'
+        );
+
+
+        const response =
+          await api.post(
+            `/admin/doctors/${doctor._id}/payment/reject`,
+            {
+              adminNote: note,
+            }
+          );
+
+
+        const updated =
+          response?.data?.data;
+
+
+        if (!updated) {
+          throw new Error(
+            'Server did not return the updated doctor.'
+          );
+        }
+
+
+        setDoctor(updated);
+        setRejectPaymentOpen(false);
+        setRejectionNote('');
+
+
+        showPaymentMessage(
+          'Payment rejected',
+          'The payment has been rejected and the doctor can resubmit it.'
+        );
+
+      } catch (requestError) {
+        showPaymentMessage(
+          'Rejection failed',
+          requestError.response?.data?.message ||
+            requestError.message ||
+            'Unable to reject payment.'
+        );
+      } finally {
+        stopAction();
+      }
+    };
+
+
+  /* =======================================================
+     DELETE PAYMENT RECORD
+  ======================================================= */
+
+  const deletePaymentRecord =
+    (record) => {
+      if (
+        !doctor?._id ||
+        !record?._id
+      ) {
+        return;
+      }
+
+
+      const removeRecord =
+        async () => {
+          try {
+            startAction(
+              'Deleting payment record...',
+              'Updating payment history.'
+            );
+
+
+            const response =
+              await api.delete(
+                `/admin/doctors/${doctor._id}/payments/${record._id}`
+              );
+
+
+            if (
+              response?.data?.data
+            ) {
+              setDoctor(
+                response.data.data
+              );
+            }
+
+          } catch (requestError) {
+            showPaymentMessage(
+              'Unable to delete payment',
+              requestError.response?.data?.message ||
+                requestError.message ||
+                'Unable to delete payment.'
+            );
+          } finally {
+            stopAction();
+          }
+        };
+
+
+      const message =
+        'Delete this payment record? Revenue and current payment status will be recalculated.';
+
+
+      if (Platform.OS === 'web') {
+        if (
+          globalThis.confirm(
+            message
+          )
+        ) {
+          removeRecord();
+        }
+
+        return;
+      }
+
+
+      Alert.alert(
+        'Delete payment record?',
+        message,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress:
+              removeRecord,
+          },
+        ]
       );
-    } finally {
-      stopAction();
-    }
-  };
+    };
+
+
+  /* =======================================================
+     ACCESS REQUEST
+  ======================================================= */
+
+  const reviewAccessRequest =
+    async (action) => {
+      if (!accessRequest?._id) {
+        return;
+      }
+
+
+      try {
+        startAction(
+          action === 'approve'
+            ? 'Approving access request...'
+            : 'Rejecting access request...',
+          'Updating this doctor’s access request.'
+        );
+
+
+        const response =
+          await api.post(
+            `/admin/access-requests/${accessRequest._id}/${action}`
+          );
+
+
+        setAccessRequest(null);
+
+
+        const updatedDoctor =
+          response?.data?.data;
+
+
+        if (
+          updatedDoctor?._id ===
+          doctor?._id
+        ) {
+          setDoctor(
+            updatedDoctor
+          );
+        }
+
+
+        showPaymentMessage(
+          action === 'approve'
+            ? 'Access approved'
+            : 'Access request rejected',
+          doctor?.name ||
+            'Doctor access request updated.'
+        );
+
+      } catch (requestError) {
+        showPaymentMessage(
+          'Access request failed',
+          requestError.response?.data?.message ||
+            requestError.message ||
+            'Unable to update access request.'
+        );
+      } finally {
+        stopAction();
+      }
+    };
+
+
+  /* =======================================================
+     ACCESS REQUEST PROOF
+  ======================================================= */
+
+  const viewAccessRequestProof =
+    async () => {
+      if (!accessRequest?._id) {
+        return;
+      }
+
+
+      try {
+        startAction(
+          'Loading screenshot...',
+          'Fetching the attached proof.'
+        );
+
+
+        const response =
+          await api.get(
+            `/admin/access-requests/${accessRequest._id}/payment-proof`
+          );
+
+
+        const proof =
+          response?.data?.data;
+
+
+        if (!proof?.data) {
+          throw new Error(
+            'Screenshot is unavailable.'
+          );
+        }
+
+
+        setProofPreview({
+          uri:
+            `data:${proof.contentType};base64,${proof.data}`,
+          fileName:
+            proof.fileName ||
+            'Payment screenshot',
+        });
+
+      } catch (requestError) {
+        showPaymentMessage(
+          'Unable to open screenshot',
+          requestError.response?.data?.message ||
+            requestError.message ||
+            'Please try again.'
+        );
+      } finally {
+        stopAction();
+      }
+    };
 
 
   /* =======================================================
      DELETE DOCTOR
   ======================================================= */
 
-  const handleDelete = () => {
-    if (!doctor?._id) return;
+  const handleDelete =
+    () => {
+      if (!doctor?._id) {
+        return;
+      }
 
-    Alert.alert(
-      'Delete Doctor',
-      `Are you sure you want to permanently delete ${doctor.name || 'this doctor'}?\n\nAll patients and prescriptions belonging to this doctor will also be deleted.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              startAction(
-                'Deleting doctor...',
-                'Removing doctor and clinical records'
-              );
 
-              await api.delete(
-                `/admin/doctors/${doctor._id}`
-              );
-
-              stopAction();
-
-              Alert.alert(
-                'Doctor Deleted',
-                'Doctor and related clinical records were deleted successfully.',
-                [
-                  {
-                    text: 'OK',
-                    onPress: () =>
-                      navigation.goBack(),
-                  },
-                ]
-              );
-            } catch (err) {
-              stopAction();
-
-              Alert.alert(
-                'Delete Failed',
-                err?.response?.data?.message ||
-                'Unable to delete doctor.'
-              );
-            }
+      Alert.alert(
+        'Delete Doctor',
+        `Are you sure you want to permanently delete ${doctor.name || 'this doctor'}?\n\nAll patients and prescriptions belonging to this doctor will also be deleted.`,
+        [
+          {
+            text: 'Cancel',
+            style: 'cancel',
           },
-        },
-      ]
-    );
-  };
+
+          {
+            text: 'Delete',
+            style: 'destructive',
+
+            onPress:
+              async () => {
+                try {
+                  startAction(
+                    'Deleting doctor...',
+                    'Removing doctor and clinical records'
+                  );
+
+
+                  await api.delete(
+                    `/admin/doctors/${doctor._id}`
+                  );
+
+
+                  stopAction();
+
+
+                  Alert.alert(
+                    'Doctor Deleted',
+                    'Doctor and related clinical records were deleted successfully.',
+                    [
+                      {
+                        text: 'OK',
+                        onPress:
+                          () =>
+                            navigation.goBack(),
+                      },
+                    ]
+                  );
+
+                } catch (err) {
+                  stopAction();
+
+
+                  Alert.alert(
+                    'Delete Failed',
+                    err?.response?.data?.message ||
+                      'Unable to delete doctor.'
+                  );
+                }
+              },
+          },
+        ]
+      );
+    };
 
 
   /* =======================================================
      ACCESS TOGGLE
   ======================================================= */
 
-  const handleAccessToggle = async () => {
-    if (!doctor?._id) return;
-
-    const nextActive =
-      doctor.active === false;
-
-    try {
-      startAction(
-        nextActive
-          ? 'Restoring doctor access...'
-          : 'Disabling doctor access...',
-        'Updating account permissions'
-      );
-
-      const response =
-        await api.patch(
-          `/admin/doctors/${doctor._id}/access`,
-          {
-            active: nextActive,
-          }
-        );
-
-      const updated =
-        response?.data?.data;
-
-      if (updated) {
-        setDoctor(updated);
-      } else {
-        setDoctor((current) => ({
-          ...current,
-          active: nextActive,
-        }));
+  const handleAccessToggle =
+    async () => {
+      if (!doctor?._id) {
+        return;
       }
 
-      stopAction();
-    } catch (err) {
-      stopAction();
 
-      Alert.alert(
-        'Action Failed',
-        err?.response?.data?.message ||
-        'Unable to update doctor access.'
-      );
-    }
-  };
+      const nextActive =
+        doctor.active === false;
+
+
+      try {
+        startAction(
+          nextActive
+            ? 'Restoring doctor access...'
+            : 'Disabling doctor access...',
+          'Updating account permissions'
+        );
+
+
+        const response =
+          await api.patch(
+            `/admin/doctors/${doctor._id}/access`,
+            {
+              active:
+                nextActive,
+            }
+          );
+
+
+        const updated =
+          response?.data?.data;
+
+
+        if (updated) {
+          setDoctor(updated);
+        } else {
+          setDoctor(
+            (current) => ({
+              ...current,
+              active:
+                nextActive,
+            })
+          );
+        }
+
+      } catch (err) {
+        Alert.alert(
+          'Action Failed',
+          err?.response?.data?.message ||
+            'Unable to update doctor access.'
+        );
+      } finally {
+        stopAction();
+      }
+    };
 
 
   /* =======================================================
@@ -818,6 +1804,7 @@ export default function AdminDoctorDashboard({
     return (
       <Screen scroll>
         <View style={styles.errorContainer}>
+
           <View style={styles.errorIcon}>
             <Text style={styles.errorIconText}>
               !
@@ -835,7 +1822,9 @@ export default function AdminDoctorDashboard({
 
           <Button
             title="TRY AGAIN"
-            onPress={loadDoctorAnalytics}
+            onPress={
+              loadDoctorAnalytics
+            }
           />
 
           <Pressable
@@ -848,33 +1837,55 @@ export default function AdminDoctorDashboard({
               Back to Admin Dashboard
             </Text>
           </Pressable>
+
         </View>
       </Screen>
     );
   }
 
 
+  /* =======================================================
+     VALUES
+  ======================================================= */
+
   const active =
     doctor.active !== false;
+
 
   const totalPatients =
     analytics?.totalPatients || 0;
 
+
   const totalVisits =
     analytics?.totalVisits || 0;
+
 
   const newPatientsToday =
     analytics?.newPatientsToday || 0;
 
+
   const weeklyPatients =
-    analytics?.weekly?.patientCount || 0;
+    analytics?.weekly?.patientCount ||
+    0;
+
 
   const weeklyVisits =
-    analytics?.weekly?.visitCount || 0;
+    analytics?.weekly?.visitCount ||
+    0;
+
+
+  const pendingPayment =
+    doctor.pendingPayment;
+
+
+  const hasPendingPayment =
+    pendingPayment?.status ===
+    'pending';
 
 
   return (
     <Screen scroll>
+
       <FadeIn>
 
         {/* =================================================
@@ -882,13 +1893,15 @@ export default function AdminDoctorDashboard({
         ================================================= */}
 
         <View style={styles.topBar}>
+
           <Pressable
             onPress={() =>
               navigation.goBack()
             }
             style={({ pressed }) => [
               styles.backButton,
-              pressed && styles.pressed,
+              pressed &&
+                styles.pressed,
             ]}
           >
             <Text style={styles.backArrow}>
@@ -900,7 +1913,9 @@ export default function AdminDoctorDashboard({
             </Text>
           </Pressable>
 
+
           <View style={styles.topTitleWrap}>
+
             <Text style={styles.topEyebrow}>
               VEDA ADMIN
             </Text>
@@ -908,9 +1923,12 @@ export default function AdminDoctorDashboard({
             <Text style={styles.topTitle}>
               Doctor Analytics
             </Text>
+
           </View>
 
+
           <View style={styles.topSpacer} />
+
         </View>
 
 
@@ -927,33 +1945,61 @@ export default function AdminDoctorDashboard({
               {doctor.clinicLogo ? (
                 <Image
                   source={{
-                    uri: doctor.clinicLogo,
+                    uri:
+                      doctor.clinicLogo,
                   }}
-                  style={styles.doctorImage}
+                  style={
+                    styles.doctorImage
+                  }
                 />
               ) : (
-                <View style={styles.doctorInitials}>
-                  <Text style={styles.doctorInitialsText}>
-                    {getInitials(doctor.name)}
+                <View
+                  style={
+                    styles.doctorInitials
+                  }
+                >
+                  <Text
+                    style={
+                      styles.doctorInitialsText
+                    }
+                  >
+                    {getInitials(
+                      doctor.name
+                    )}
                   </Text>
                 </View>
               )}
 
+
               <View style={styles.identityText}>
-                <Text style={styles.doctorName}>
-                  {doctor.name || 'Doctor'}
+
+                <Text
+                  style={styles.doctorName}
+                >
+                  {doctor.name ||
+                    'Doctor'}
                 </Text>
 
-                <Text style={styles.doctorSpecialization}>
+                <Text
+                  style={
+                    styles.doctorSpecialization
+                  }
+                >
                   {doctor.specialization ||
                     'Medical Professional'}
                 </Text>
 
-                <Text style={styles.doctorEmail}>
-                  {doctor.email || 'No email'}
+                <Text
+                  style={styles.doctorEmail}
+                >
+                  {doctor.email ||
+                    'No email'}
                 </Text>
+
               </View>
+
             </View>
+
 
             <View
               style={[
@@ -989,7 +2035,9 @@ export default function AdminDoctorDashboard({
           </View>
 
 
-          <View style={styles.heroDivider} />
+          <View
+            style={styles.heroDivider}
+          />
 
 
           <View style={styles.heroMeta}>
@@ -1005,6 +2053,7 @@ export default function AdminDoctorDashboard({
               </Text>
             </View>
 
+
             <View style={styles.metaItem}>
               <Text style={styles.metaLabel}>
                 REGISTRATION
@@ -1016,6 +2065,7 @@ export default function AdminDoctorDashboard({
               </Text>
             </View>
 
+
             <View style={styles.metaItem}>
               <Text style={styles.metaLabel}>
                 JOINED
@@ -1024,7 +2074,7 @@ export default function AdminDoctorDashboard({
               <Text style={styles.metaValue}>
                 {formatDate(
                   analytics?.joinedAt ||
-                  doctor.createdAt
+                    doctor.createdAt
                 )}
               </Text>
             </View>
@@ -1045,27 +2095,46 @@ export default function AdminDoctorDashboard({
               }
               style={({ pressed }) => [
                 styles.editButton,
-                pressed && styles.pressed,
+                pressed &&
+                  styles.pressed,
               ]}
             >
-              <Text style={styles.editButtonIcon}>
+              <Text
+                style={
+                  styles.editButtonIcon
+                }
+              >
                 ✎
               </Text>
 
-              <Text style={styles.editButtonText}>
+              <Text
+                style={
+                  styles.editButtonText
+                }
+              >
                 Edit Doctor Profile
               </Text>
             </Pressable>
 
+
             <Pressable
-              onPress={handleAccessToggle}
-              disabled={actionLoading}
+              onPress={
+                handleAccessToggle
+              }
+              disabled={
+                actionLoading
+              }
               style={({ pressed }) => [
                 styles.accessButton,
-                pressed && styles.pressed,
+                pressed &&
+                  styles.pressed,
               ]}
             >
-              <Text style={styles.accessButtonText}>
+              <Text
+                style={
+                  styles.accessButtonText
+                }
+              >
                 {active
                   ? 'Disable Access'
                   : 'Restore Access'}
@@ -1076,118 +2145,307 @@ export default function AdminDoctorDashboard({
 
         </Card>
 
-        <View style={styles.detailTabs}>
+
+        {/* =================================================
+            TABS
+        ================================================= */}
+
+        <View
+          style={styles.detailTabs}
+        >
           {[
             ['overview', 'Overview'],
             ['billing', 'Billing'],
             ['profile', 'Profile'],
-          ].map(([value, label]) => (
-            <Pressable
-              key={value}
-              accessibilityRole="button"
-              accessibilityState={{ selected: detailTab === value }}
-              onPress={() => setDetailTab(value)}
-              style={[
-                styles.detailTab,
-                detailTab === value && styles.detailTabSelected,
-              ]}
-            >
-              <Text
+          ].map(
+            ([value, label]) => (
+              <Pressable
+                key={value}
+                accessibilityRole="button"
+                accessibilityState={{
+                  selected:
+                    detailTab === value,
+                }}
+                onPress={() =>
+                  setDetailTab(value)
+                }
                 style={[
-                  styles.detailTabText,
-                  detailTab === value && styles.detailTabTextSelected,
+                  styles.detailTab,
+                  detailTab === value &&
+                    styles.detailTabSelected,
                 ]}
               >
-                {label}
-              </Text>
-            </Pressable>
-          ))}
+                <Text
+                  style={[
+                    styles.detailTabText,
+                    detailTab === value &&
+                      styles.detailTabTextSelected,
+                  ]}
+                >
+                  {label}
+                </Text>
+              </Pressable>
+            )
+          )}
         </View>
+
+
+        {/* =================================================
+            BILLING
+        ================================================= */}
 
         {detailTab === 'billing' ? (
           <>
-        {accessRequest ? (
-          <>
-            <View style={styles.sectionHeader}>
+
+            {/* ACCESS REQUEST */}
+
+            {accessRequest ? (
+              <>
+                <View
+                  style={
+                    styles.sectionHeader
+                  }
+                >
+                  <View>
+                    <Text
+                      style={
+                        styles.sectionEyebrow
+                      }
+                    >
+                      ACCESS CONTROL
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.sectionTitle
+                      }
+                    >
+                      Pending access request
+                    </Text>
+                  </View>
+                </View>
+
+
+                <Card
+                  style={
+                    styles.accessRequestPanel
+                  }
+                >
+                  <Text
+                    style={
+                      styles.accessRequestMessage
+                    }
+                  >
+                    {accessRequest.message ||
+                      'This doctor requested access to the workspace.'}
+                  </Text>
+
+
+                  {accessRequest
+                    .paymentProof
+                    ?.available ? (
+                    <Pressable
+                      accessibilityRole="button"
+                      onPress={
+                        viewAccessRequestProof
+                      }
+                      style={
+                        styles.accessProofButton
+                      }
+                    >
+                      <Text
+                        style={
+                          styles.accessProofText
+                        }
+                      >
+                        View attached payment screenshot
+                      </Text>
+                    </Pressable>
+                  ) : null}
+
+
+                  <View
+                    style={
+                      styles.paymentControls
+                    }
+                  >
+                    <View
+                      style={
+                        styles.paymentControl
+                      }
+                    >
+                      <Button
+                        title="Reject request"
+                        danger
+                        onPress={() =>
+                          reviewAccessRequest(
+                            'reject'
+                          )
+                        }
+                        disabled={
+                          actionLoading
+                        }
+                      />
+                    </View>
+
+
+                    <View
+                      style={
+                        styles.paymentControl
+                      }
+                    >
+                      <Button
+                        title="Approve access"
+                        onPress={() =>
+                          reviewAccessRequest(
+                            'approve'
+                          )
+                        }
+                        disabled={
+                          actionLoading
+                        }
+                      />
+                    </View>
+                  </View>
+
+                </Card>
+              </>
+            ) : null}
+
+
+            {/* BILLING HEADER */}
+
+            <View
+              style={styles.sectionHeader}
+            >
               <View>
-                <Text style={styles.sectionEyebrow}>
-                  ACCESS CONTROL
+                <Text
+                  style={
+                    styles.sectionEyebrow
+                  }
+                >
+                  BILLING
                 </Text>
-                <Text style={styles.sectionTitle}>
-                  Pending access request
+
+                <Text
+                  style={
+                    styles.sectionTitle
+                  }
+                >
+                  Payment management
                 </Text>
               </View>
             </View>
 
-            <Card style={styles.accessRequestPanel}>
-              <Text style={styles.accessRequestMessage}>
-                {accessRequest.message ||
-                  'This doctor requested access to the workspace.'}
-              </Text>
 
-              {accessRequest.paymentProof?.available ? (
-                <Pressable
-                  accessibilityRole="button"
-                  onPress={viewAccessRequestProof}
-                  style={styles.accessProofButton}
+            {/* =================================================
+                DOCTOR SUBMITTED PAYMENT
+            ================================================= */}
+
+            {pendingPayment ? (
+              <PendingPaymentCard
+                pendingPayment={
+                  pendingPayment
+                }
+                onViewProof={
+                  openPendingPaymentProof
+                }
+                onVerify={
+                  verifyPendingPayment
+                }
+                onReject={
+                  openRejectPayment
+                }
+                busy={
+                  actionLoading
+                }
+              />
+            ) : null}
+
+
+            {!pendingPayment ? (
+              <Card
+                style={
+                  styles.noPendingPaymentCard
+                }
+              >
+                <View
+                  style={
+                    styles.noPendingIcon
+                  }
                 >
-                  <Text style={styles.accessProofText}>
-                    View attached payment screenshot
+                  <Text
+                    style={
+                      styles.noPendingIconText
+                    }
+                  >
+                    ✓
                   </Text>
-                </Pressable>
-              ) : null}
+                </View>
 
-              <View style={styles.paymentControls}>
-                <View style={styles.paymentControl}>
-                  <Button
-                    title="Reject request"
-                    danger
-                    onPress={() => reviewAccessRequest('reject')}
-                    disabled={actionLoading}
-                  />
+                <View
+                  style={
+                    styles.noPendingTextWrap
+                  }
+                >
+                  <Text
+                    style={
+                      styles.noPendingTitle
+                    }
+                  >
+                    No pending payment
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.noPendingText
+                    }
+                  >
+                    New doctor-submitted payments will appear here for verification.
+                  </Text>
                 </View>
-                <View style={styles.paymentControl}>
-                  <Button
-                    title="Approve access"
-                    onPress={() => reviewAccessRequest('approve')}
-                    disabled={actionLoading}
-                  />
-                </View>
-              </View>
-            </Card>
+              </Card>
+            ) : null}
+
+
+            {/* EXISTING BILLING SUMMARY */}
+
+            <PaymentSummaryCard
+              doctor={doctor}
+              onHistory={() =>
+                setPaymentHistoryOpen(
+                  true
+                )
+              }
+            />
+
+
+            {/* MANUAL ADMIN PAYMENT */}
+
+            <View
+              style={
+                styles.adminPaymentActions
+              }
+            >
+              <Button
+                title={
+                  doctor.paymentStatus ===
+                  'paid'
+                    ? 'Change payment status'
+                    : 'Mark paid / unpaid'
+                }
+                onPress={
+                  openPaymentEntry
+                }
+                disabled={
+                  actionLoading
+                }
+              />
+            </View>
+
           </>
         ) : null}
 
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionEyebrow}>
-              BILLING
-            </Text>
-            <Text style={styles.sectionTitle}>
-              Payment management
-            </Text>
-          </View>
-        </View>
-
-        <PaymentSummaryCard
-          doctor={doctor}
-          onHistory={() => setPaymentHistoryOpen(true)}
-        />
-
-        <View style={styles.adminPaymentActions}>
-          <Button
-            title={
-              doctor.paymentStatus === 'paid'
-                ? 'Change payment status'
-                : 'Mark paid / unpaid'
-            }
-            onPress={openPaymentEntry}
-            disabled={actionLoading}
-          />
-        </View>
-
-          </>
-        ) : null}
 
         {/* =================================================
             OVERVIEW
@@ -1195,452 +2453,927 @@ export default function AdminDoctorDashboard({
 
         {detailTab === 'overview' ? (
           <>
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionEyebrow}>
-              CLINICAL OVERVIEW
-            </Text>
 
-            <Text style={styles.sectionTitle}>
-              Practice performance
-            </Text>
-          </View>
-        </View>
+            <View
+              style={styles.sectionHeader}
+            >
+              <View>
+                <Text
+                  style={
+                    styles.sectionEyebrow
+                  }
+                >
+                  CLINICAL OVERVIEW
+                </Text>
 
-
-        <View style={styles.statsGrid}>
-
-          <StatCard
-            icon="P"
-            label="Total Patients"
-            value={totalPatients}
-            subtitle="Patients registered"
-          />
-
-          <StatCard
-            icon="V"
-            label="Total Visits"
-            value={totalVisits}
-            subtitle="Clinical visits"
-          />
-
-          <StatCard
-            icon="+"
-            label="New Today"
-            value={newPatientsToday}
-            subtitle="Patients added today"
-          />
-
-          <StatCard
-            icon="7"
-            label="Last 28 Days"
-            value={weeklyPatients}
-            subtitle={`${formatNumber(
-              weeklyVisits
-            )} visits in same period`}
-          />
-
-        </View>
-
-
-        {/* =================================================
-            28 DAY SNAPSHOT
-        ================================================= */}
-
-        <Card style={styles.snapshotCard}>
-
-          <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardEyebrow}>
-                RECENT ACTIVITY
-              </Text>
-
-              <Text style={styles.cardTitle}>
-                Last 28 days
-              </Text>
+                <Text
+                  style={
+                    styles.sectionTitle
+                  }
+                >
+                  Practice performance
+                </Text>
+              </View>
             </View>
 
-            <View style={styles.snapshotBadge}>
-              <Text style={styles.snapshotBadgeText}>
-                {formatNumber(
-                  weeklyVisits
-                )}{' '}
-                visits
-              </Text>
-            </View>
-          </View>
+
+            <View
+              style={styles.statsGrid}
+            >
+
+              <StatCard
+                icon="P"
+                label="Total Patients"
+                value={
+                  totalPatients
+                }
+                subtitle="Patients registered"
+              />
 
 
-          <View style={styles.snapshotNumbers}>
+              <StatCard
+                icon="V"
+                label="Total Visits"
+                value={
+                  totalVisits
+                }
+                subtitle="Clinical visits"
+              />
 
-            <View style={styles.snapshotNumberBlock}>
-              <Text style={styles.snapshotNumber}>
-                {formatNumber(
+
+              <StatCard
+                icon="+"
+                label="New Today"
+                value={
+                  newPatientsToday
+                }
+                subtitle="Patients added today"
+              />
+
+
+              <StatCard
+                icon="7"
+                label="Last 28 Days"
+                value={
                   weeklyPatients
-                )}
-              </Text>
-
-              <Text style={styles.snapshotLabel}>
-                Patients
-              </Text>
-            </View>
-
-            <View style={styles.snapshotDivider} />
-
-            <View style={styles.snapshotNumberBlock}>
-              <Text style={styles.snapshotNumber}>
-                {formatNumber(
+                }
+                subtitle={`${formatNumber(
                   weeklyVisits
-                )}
-              </Text>
+                )} visits in same period`}
+              />
 
-              <Text style={styles.snapshotLabel}>
-                Visits
-              </Text>
             </View>
 
-            <View style={styles.snapshotDivider} />
 
-            <View style={styles.snapshotNumberBlock}>
-              <Text style={styles.snapshotNumber}>
-                {totalPatients > 0
-                  ? (
-                      totalVisits /
-                      totalPatients
-                    ).toFixed(1)
-                  : '0.0'}
-              </Text>
+            {/* 28 DAY SNAPSHOT */}
 
-              <Text style={styles.snapshotLabel}>
-                Visits / patient
-              </Text>
-            </View>
+            <Card
+              style={
+                styles.snapshotCard
+              }
+            >
+              <View
+                style={
+                  styles.cardHeaderRow
+                }
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.cardEyebrow
+                    }
+                  >
+                    RECENT ACTIVITY
+                  </Text>
 
-          </View>
+                  <Text
+                    style={
+                      styles.snapshotTitle
+                    }
+                  >
+                    Last 28 days
+                  </Text>
+                </View>
 
-        </Card>
-
-
-        {/* =================================================
-            DAILY ANALYTICS
-        ================================================= */}
-
-        <Card style={styles.analyticsCard}>
-
-          <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardEyebrow}>
-                DAILY ACTIVITY
-              </Text>
-
-              <Text style={styles.cardTitle}>
-                Patient & visit activity
-              </Text>
-            </View>
-
-            <View style={styles.legend}>
-              <View style={styles.legendItem}>
                 <View
-                  style={[
-                    styles.legendDot,
-                    styles.patientLegend,
-                  ]}
-                />
-
-                <Text style={styles.legendText}>
-                  Patients
-                </Text>
+                  style={
+                    styles.snapshotBadge
+                  }
+                >
+                  <Text
+                    style={
+                      styles.snapshotBadgeText
+                    }
+                  >
+                    {formatNumber(
+                      weeklyVisits
+                    )}{' '}
+                    visits
+                  </Text>
+                </View>
               </View>
 
-              <View style={styles.legendItem}>
+
+              <View
+                style={
+                  styles.snapshotNumbers
+                }
+              >
+
                 <View
-                  style={[
-                    styles.legendDot,
-                    styles.visitLegend,
-                  ]}
+                  style={
+                    styles.snapshotNumberBlock
+                  }
+                >
+                  <Text
+                    style={
+                      styles.snapshotNumber
+                    }
+                  >
+                    {formatNumber(
+                      weeklyPatients
+                    )}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.snapshotLabel
+                    }
+                  >
+                    Patients
+                  </Text>
+                </View>
+
+
+                <View
+                  style={
+                    styles.snapshotDivider
+                  }
                 />
 
-                <Text style={styles.legendText}>
-                  Visits
-                </Text>
+
+                <View
+                  style={
+                    styles.snapshotNumberBlock
+                  }
+                >
+                  <Text
+                    style={
+                      styles.snapshotNumber
+                    }
+                  >
+                    {formatNumber(
+                      weeklyVisits
+                    )}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.snapshotLabel
+                    }
+                  >
+                    Visits
+                  </Text>
+                </View>
+
+
+                <View
+                  style={
+                    styles.snapshotDivider
+                  }
+                />
+
+
+                <View
+                  style={
+                    styles.snapshotNumberBlock
+                  }
+                >
+                  <Text
+                    style={
+                      styles.snapshotNumber
+                    }
+                  >
+                    {totalPatients > 0
+                      ? (
+                          totalVisits /
+                          totalPatients
+                        ).toFixed(1)
+                      : '0.0'}
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.snapshotLabel
+                    }
+                  >
+                    Visits / patient
+                  </Text>
+                </View>
+
               </View>
-            </View>
-          </View>
+
+            </Card>
 
 
-          {dailyData.length > 0 ? (
-            <View style={styles.chart}>
-              {dailyData.map(
-                (item, index) => (
-                  <ActivityBar
-                    key={`${item.date}-${index}`}
-                    label={formatDate(
-                      item.date
-                    )}
-                    patientCount={
-                      item.patients
+            {/* DAILY ANALYTICS */}
+
+            <Card
+              style={
+                styles.analyticsCard
+              }
+            >
+
+              <View
+                style={
+                  styles.cardHeaderRow
+                }
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.cardEyebrow
                     }
-                    visitCount={
-                      item.visits
+                  >
+                    DAILY ACTIVITY
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.analyticsTitle
                     }
-                    maxValue={
-                      maxDailyValue
+                  >
+                    Patient & visit activity
+                  </Text>
+                </View>
+
+
+                <View
+                  style={styles.legend}
+                >
+
+                  <View
+                    style={
+                      styles.legendItem
                     }
-                  />
-                )
+                  >
+                    <View
+                      style={[
+                        styles.legendDot,
+                        styles.patientLegend,
+                      ]}
+                    />
+
+                    <Text
+                      style={
+                        styles.legendText
+                      }
+                    >
+                      Patients
+                    </Text>
+                  </View>
+
+
+                  <View
+                    style={
+                      styles.legendItem
+                    }
+                  >
+                    <View
+                      style={[
+                        styles.legendDot,
+                        styles.visitLegend,
+                      ]}
+                    />
+
+                    <Text
+                      style={
+                        styles.legendText
+                      }
+                    >
+                      Visits
+                    </Text>
+                  </View>
+
+                </View>
+              </View>
+
+
+              {dailyData.length > 0 ? (
+                <View
+                  style={styles.chart}
+                >
+                  {dailyData.map(
+                    (
+                      item,
+                      index
+                    ) => (
+                      <ActivityBar
+                        key={`${item.date}-${index}`}
+                        label={formatDate(
+                          item.date
+                        )}
+                        patientCount={
+                          item.patients
+                        }
+                        visitCount={
+                          item.visits
+                        }
+                        maxValue={
+                          maxDailyValue
+                        }
+                      />
+                    )
+                  )}
+                </View>
+              ) : (
+                <EmptyState
+                  text="Daily activity will appear here once clinical activity is recorded."
+                />
               )}
-            </View>
-          ) : (
-            <EmptyState text="Daily activity will appear here once clinical activity is recorded." />
-          )}
 
-        </Card>
+            </Card>
 
 
-        {/* =================================================
-            MONTHLY ANALYTICS
-        ================================================= */}
+            {/* MONTHLY ANALYTICS */}
 
-        <Card style={styles.analyticsCard}>
+            <Card
+              style={
+                styles.analyticsCard
+              }
+            >
 
-          <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardEyebrow}>
-                MONTHLY TREND
-              </Text>
-
-              <Text style={styles.cardTitle}>
-                Practice activity
-              </Text>
-            </View>
-          </View>
-
-
-          {monthlyData.length > 0 ? (
-            <View style={styles.chart}>
-              {monthlyData.map(
-                (item, index) => (
-                  <ActivityBar
-                    key={`${item.date}-${index}`}
-                    label={formatDate(
-                      item.date
-                    )}
-                    patientCount={
-                      item.patients
+              <View
+                style={
+                  styles.cardHeaderRow
+                }
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.cardEyebrow
                     }
-                    visitCount={
-                      item.visits
+                  >
+                    MONTHLY TREND
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.analyticsTitle
                     }
-                    maxValue={
-                      maxMonthlyValue
-                    }
-                  />
-                )
+                  >
+                    Practice activity
+                  </Text>
+                </View>
+              </View>
+
+
+              {monthlyData.length > 0 ? (
+                <View
+                  style={styles.chart}
+                >
+                  {monthlyData.map(
+                    (
+                      item,
+                      index
+                    ) => (
+                      <ActivityBar
+                        key={`${item.date}-${index}`}
+                        label={formatDate(
+                          item.date
+                        )}
+                        patientCount={
+                          item.patients
+                        }
+                        visitCount={
+                          item.visits
+                        }
+                        maxValue={
+                          maxMonthlyValue
+                        }
+                      />
+                    )
+                  )}
+                </View>
+              ) : (
+                <EmptyState
+                  text="Monthly analytics will appear after the doctor has enough activity data."
+                />
               )}
-            </View>
-          ) : (
-            <EmptyState text="Monthly analytics will appear after the doctor has enough activity data." />
-          )}
 
-        </Card>
-
-
-        {/* =================================================
-            DOCTOR PROFILE
-        ================================================= */}
+            </Card>
 
           </>
         ) : null}
+
+
+        {/* =================================================
+            PROFILE
+        ================================================= */}
 
         {detailTab === 'profile' ? (
           <>
 
-        <Card style={styles.profileCard}>
-
-          <View style={styles.cardHeaderRow}>
-            <View>
-              <Text style={styles.cardEyebrow}>
-                ACCOUNT INFORMATION
-              </Text>
-
-              <Text style={styles.cardTitle}>
-                Doctor profile
-              </Text>
-            </View>
-
-            <Pressable
-              onPress={() =>
-                navigation.navigate(
-                  'AdminDoctorEdit',
-                  {
-                    doctor,
-                  }
-                )
+            <Card
+              style={
+                styles.profileCard
               }
-              style={({ pressed }) => [
-                styles.smallEditButton,
-                pressed && styles.pressed,
-              ]}
             >
-              <Text style={styles.smallEditText}>
-                Edit
+
+              <View
+                style={
+                  styles.cardHeaderRow
+                }
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.cardEyebrow
+                    }
+                  >
+                    ACCOUNT INFORMATION
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.profileTitle
+                    }
+                  >
+                    Doctor profile
+                  </Text>
+                </View>
+
+
+                <Pressable
+                  onPress={() =>
+                    navigation.navigate(
+                      'AdminDoctorEdit',
+                      {
+                        doctor,
+                      }
+                    )
+                  }
+                  style={({ pressed }) => [
+                    styles.smallEditButton,
+                    pressed &&
+                      styles.pressed,
+                  ]}
+                >
+                  <Text
+                    style={
+                      styles.smallEditText
+                    }
+                  >
+                    Edit
+                  </Text>
+                </Pressable>
+
+              </View>
+
+
+              <View
+                style={
+                  styles.profileGrid
+                }
+              >
+
+                <ProfileRow
+                  label="Full name"
+                  value={
+                    doctor.name
+                  }
+                />
+
+                <ProfileRow
+                  label="Email"
+                  value={
+                    doctor.email
+                  }
+                />
+
+                <ProfileRow
+                  label="Phone"
+                  value={
+                    doctor.phone
+                  }
+                />
+
+                <ProfileRow
+                  label="Specialization"
+                  value={
+                    doctor.specialization
+                  }
+                />
+
+                <ProfileRow
+                  label="Qualification"
+                  value={
+                    doctor.qualification
+                  }
+                />
+
+                <ProfileRow
+                  label="Registration number"
+                  value={
+                    doctor.registrationNumber
+                  }
+                />
+
+                <ProfileRow
+                  label="Clinic name"
+                  value={
+                    doctor.clinicName
+                  }
+                />
+
+                <ProfileRow
+                  label="Clinic address"
+                  value={
+                    doctor.clinicAddress
+                  }
+                />
+
+              </View>
+
+            </Card>
+
+
+            {/* ADMIN ACTIONS */}
+
+            <Card
+              style={
+                styles.dangerCard
+              }
+            >
+
+              <Text
+                style={
+                  styles.dangerEyebrow
+                }
+              >
+                ADMINISTRATIVE ACTION
               </Text>
-            </Pressable>
-          </View>
+
+              <Text
+                style={
+                  styles.dangerTitle
+                }
+              >
+                Remove doctor
+              </Text>
+
+              <Text
+                style={
+                  styles.dangerDescription
+                }
+              >
+                Permanently deletes this doctor and all
+                patients, visits and prescriptions associated
+                with the account.
+              </Text>
 
 
-          <View style={styles.profileGrid}>
+              <Pressable
+                onPress={
+                  handleDelete
+                }
+                disabled={
+                  actionLoading
+                }
+                style={({ pressed }) => [
+                  styles.deleteButton,
+                  pressed &&
+                    styles.pressed,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.deleteButtonText
+                  }
+                >
+                  Permanently Delete Doctor
+                </Text>
+              </Pressable>
 
-            <ProfileRow
-              label="Full name"
-              value={doctor.name}
-            />
-
-            <ProfileRow
-              label="Email"
-              value={doctor.email}
-            />
-
-            <ProfileRow
-              label="Phone"
-              value={doctor.phone}
-            />
-
-            <ProfileRow
-              label="Specialization"
-              value={
-                doctor.specialization
-              }
-            />
-
-            <ProfileRow
-              label="Qualification"
-              value={
-                doctor.qualification
-              }
-            />
-
-            <ProfileRow
-              label="Registration number"
-              value={
-                doctor.registrationNumber
-              }
-            />
-
-            <ProfileRow
-              label="Clinic name"
-              value={
-                doctor.clinicName
-              }
-            />
-
-            <ProfileRow
-              label="Clinic address"
-              value={
-                doctor.clinicAddress
-              }
-            />
-
-          </View>
-
-        </Card>
-
-
-        {/* =================================================
-            ADMIN ACTIONS
-        ================================================= */}
-
-        <Card style={styles.dangerCard}>
-
-          <Text style={styles.dangerEyebrow}>
-            ADMINISTRATIVE ACTION
-          </Text>
-
-          <Text style={styles.dangerTitle}>
-            Remove doctor
-          </Text>
-
-          <Text style={styles.dangerDescription}>
-            Permanently deletes this doctor and all
-            patients, visits and prescriptions associated
-            with the account.
-          </Text>
-
-          <Pressable
-            onPress={handleDelete}
-            disabled={actionLoading}
-            style={({ pressed }) => [
-              styles.deleteButton,
-              pressed && styles.pressed,
-            ]}
-          >
-            <Text style={styles.deleteButtonText}>
-              Permanently Delete Doctor
-            </Text>
-          </Pressable>
-
-        </Card>
+            </Card>
 
           </>
         ) : null}
 
-        <View style={styles.bottomSpace} />
+
+        <View
+          style={
+            styles.bottomSpace
+          }
+        />
 
       </FadeIn>
 
+
+      {/* =================================================
+          MANUAL PAYMENT MODAL
+      ================================================= */}
+
       <PaymentEntryModal
-        visible={paymentEntryOpen}
+        visible={
+          paymentEntryOpen
+        }
         doctor={doctor}
         mode={paymentMode}
-        onModeChange={setPaymentMode}
-        amount={paymentAmount}
-        note={paymentNote}
-        transactionId={paymentTransactionId}
-        monthsPaid={paymentMonthsPaid}
-        paymentProof={paymentProof}
-        busy={actionLoading}
-        onAmountChange={setPaymentAmount}
-        onNoteChange={setPaymentNote}
-        onTransactionIdChange={setPaymentTransactionId}
-        onMonthsPaidChange={setPaymentMonthsPaid}
-        onPickProof={choosePaymentProof}
-        onRemoveProof={() => setPaymentProof(null)}
-        onCancel={() => setPaymentEntryOpen(false)}
-        onSubmit={submitPaidPayment}
-        onMarkUnpaid={submitUnpaidStatus}
+        onModeChange={
+          setPaymentMode
+        }
+        amount={
+          paymentAmount
+        }
+        note={
+          paymentNote
+        }
+        transactionId={
+          paymentTransactionId
+        }
+        monthsPaid={
+          paymentMonthsPaid
+        }
+        paymentProof={
+          paymentProof
+        }
+        busy={
+          actionLoading
+        }
+        onAmountChange={
+          setPaymentAmount
+        }
+        onNoteChange={
+          setPaymentNote
+        }
+        onTransactionIdChange={
+          setPaymentTransactionId
+        }
+        onMonthsPaidChange={
+          setPaymentMonthsPaid
+        }
+        onPickProof={
+          choosePaymentProof
+        }
+        onRemoveProof={() =>
+          setPaymentProof(null)
+        }
+        onCancel={() =>
+          setPaymentEntryOpen(false)
+        }
+        onSubmit={
+          submitPaidPayment
+        }
+        onMarkUnpaid={
+          submitUnpaidStatus
+        }
       />
+
+
+      {/* =================================================
+          PAYMENT HISTORY
+      ================================================= */}
 
       <PaymentHistoryModal
-        doctor={paymentHistoryOpen ? doctor : null}
-        onClose={() => setPaymentHistoryOpen(false)}
-        onViewProof={openPaymentProof}
-        onDeleteRecord={deletePaymentRecord}
+        doctor={
+          paymentHistoryOpen
+            ? doctor
+            : null
+        }
+        onClose={() =>
+          setPaymentHistoryOpen(
+            false
+          )
+        }
+        onViewProof={
+          openPaymentProof
+        }
+        onDeleteRecord={
+          deletePaymentRecord
+        }
       />
 
+
+      {/* =================================================
+          REJECT PAYMENT MODAL
+      ================================================= */}
+
       <Modal
-        visible={Boolean(proofPreview)}
+        visible={
+          rejectPaymentOpen
+        }
         transparent
         animationType="fade"
-        onRequestClose={() => setProofPreview(null)}
+        onRequestClose={() => {
+          if (!actionLoading) {
+            setRejectPaymentOpen(
+              false
+            );
+          }
+        }}
+      >
+        <View
+          style={
+            styles.rejectModalOverlay
+          }
+        >
+
+          <View
+            style={
+              styles.rejectModalCard
+            }
+          >
+
+            <View
+              style={
+                styles.rejectModalIcon
+              }
+            >
+              <Text
+                style={
+                  styles.rejectModalIconText
+                }
+              >
+                !
+              </Text>
+            </View>
+
+
+            <Text
+              style={
+                styles.rejectModalTitle
+              }
+            >
+              Reject Payment
+            </Text>
+
+
+            <Text
+              style={
+                styles.rejectModalDescription
+              }
+            >
+              Enter a clear reason so the doctor knows
+              what needs to be corrected before resubmitting.
+            </Text>
+
+
+            <Text
+              style={
+                styles.rejectInputLabel
+              }
+            >
+              ADMIN NOTE *
+            </Text>
+
+
+            <TextInput
+              value={
+                rejectionNote
+              }
+              onChangeText={
+                setRejectionNote
+              }
+              placeholder="Example: UTR is not visible in the screenshot."
+              placeholderTextColor="#9AA6B5"
+              multiline
+              maxLength={500}
+              textAlignVertical="top"
+              editable={
+                !actionLoading
+              }
+              style={
+                styles.rejectTextInput
+              }
+            />
+
+
+            <Text
+              style={
+                styles.rejectCharacterCount
+              }
+            >
+              {rejectionNote.length}/500
+            </Text>
+
+
+            <View
+              style={
+                styles.rejectModalActions
+              }
+            >
+
+              <Pressable
+                onPress={() =>
+                  setRejectPaymentOpen(
+                    false
+                  )
+                }
+                disabled={
+                  actionLoading
+                }
+                style={({ pressed }) => [
+                  styles.rejectCancelButton,
+                  pressed &&
+                    styles.pressed,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.rejectCancelText
+                  }
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+
+
+              <Pressable
+                onPress={
+                  rejectPendingPayment
+                }
+                disabled={
+                  actionLoading
+                }
+                style={({ pressed }) => [
+                  styles.rejectConfirmButton,
+                  pressed &&
+                    styles.pressed,
+                ]}
+              >
+                <Text
+                  style={
+                    styles.rejectConfirmText
+                  }
+                >
+                  Reject Payment
+                </Text>
+              </Pressable>
+
+            </View>
+
+          </View>
+
+        </View>
+      </Modal>
+
+
+      {/* =================================================
+          SCREENSHOT PREVIEW
+      ================================================= */}
+
+      <Modal
+        visible={
+          Boolean(proofPreview)
+        }
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          setProofPreview(null)
+        }
       >
         <Pressable
-          style={adminStyles.proofOverlay}
-          onPress={() => setProofPreview(null)}
+          style={
+            adminStyles.proofOverlay
+          }
+          onPress={() =>
+            setProofPreview(null)
+          }
         >
-          <View style={adminStyles.proofModal}>
-            <Text style={adminStyles.proofTitle}>
-              {proofPreview?.fileName || 'Payment screenshot'}
+          <View
+            style={
+              adminStyles.proofModal
+            }
+          >
+
+            <Text
+              style={
+                adminStyles.proofTitle
+              }
+            >
+              {proofPreview?.fileName ||
+                'Payment screenshot'}
             </Text>
+
+
             {proofPreview ? (
               <Image
-                source={{ uri: proofPreview.uri }}
+                source={{
+                  uri:
+                    proofPreview.uri,
+                }}
                 resizeMode="contain"
-                style={adminStyles.proofImage}
+                style={
+                  adminStyles.proofImage
+                }
               />
             ) : null}
+
           </View>
         </Pressable>
       </Modal>
+
     </Screen>
   );
 }
@@ -2018,9 +3751,374 @@ const styles = StyleSheet.create({
     color: '#14233B',
   },
 
-  paymentPanel: {
-    marginBottom: 4,
+
+  /* =======================================================
+     PENDING PAYMENT
+  ======================================================= */
+
+  pendingPaymentCard: {
+    marginBottom: 12,
+    padding: 18,
+    backgroundColor: '#FFFBF2',
+    borderWidth: 1,
+    borderColor: '#F2DFB0',
   },
+
+  rejectedPaymentCard: {
+    backgroundColor: '#FFF8F7',
+    borderColor: '#F0D2CD',
+  },
+
+  pendingPaymentHeader: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+
+  pendingPaymentTitleWrap: {
+    flex: 1,
+    flexDirection: 'row',
+    paddingRight: 10,
+  },
+
+  pendingPaymentIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  pendingIcon: {
+    backgroundColor: '#FFF0C7',
+  },
+
+  rejectedIcon: {
+    backgroundColor: '#FCE3DF',
+  },
+
+  pendingPaymentIconText: {
+    fontSize: 17,
+    fontWeight: '900',
+  },
+
+  pendingIconText: {
+    color: '#A96A00',
+  },
+
+  rejectedIconText: {
+    color: '#B44A3E',
+  },
+
+  pendingPaymentHeading: {
+    flex: 1,
+  },
+
+  pendingPaymentEyebrow: {
+    fontSize: 8,
+    letterSpacing: 1.4,
+    fontWeight: '900',
+    color: '#A36B08',
+  },
+
+  pendingPaymentTitle: {
+    marginTop: 4,
+    fontSize: 17,
+    lineHeight: 21,
+    fontWeight: '900',
+    color: '#26384F',
+  },
+
+  pendingStatusBadge: {
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+
+  pendingStatusBadge: {
+    backgroundColor: '#FFF1C9',
+    borderColor: '#F1D88E',
+  },
+
+  rejectedStatusBadge: {
+    backgroundColor: '#FCE7E3',
+    borderColor: '#F0C9C2',
+  },
+
+  pendingStatusText: {
+    color: '#996100',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.9,
+  },
+
+  rejectedStatusText: {
+    color: '#A9463A',
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.9,
+  },
+
+  pendingAmountPanel: {
+    marginTop: 17,
+    padding: 16,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#EFE6CF',
+  },
+
+  pendingAmountLabel: {
+    fontSize: 8,
+    letterSpacing: 1.3,
+    fontWeight: '900',
+    color: '#9B8C6A',
+  },
+
+  pendingAmount: {
+    marginTop: 4,
+    fontSize: 29,
+    fontWeight: '900',
+    color: '#14233B',
+  },
+
+  pendingAmountSubtext: {
+    marginTop: 2,
+    fontSize: 11,
+    color: '#7D7565',
+    fontWeight: '700',
+  },
+
+  pendingDetailsGrid: {
+    marginTop: 14,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+
+  pendingDetailItem: {
+    width: '50%',
+    paddingRight: 10,
+    marginBottom: 13,
+  },
+
+  pendingDetailLabel: {
+    fontSize: 8,
+    letterSpacing: 0.9,
+    fontWeight: '900',
+    color: '#929BA8',
+  },
+
+  pendingDetailValue: {
+    marginTop: 4,
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: '800',
+    color: '#34445A',
+  },
+
+  proofAvailableText: {
+    color: '#16815E',
+  },
+
+  proofMissingText: {
+    color: '#B54C3D',
+  },
+
+  doctorPaymentNote: {
+    marginTop: 1,
+    padding: 13,
+    borderRadius: 11,
+    backgroundColor: '#F7F9FC',
+    borderWidth: 1,
+    borderColor: '#E6EAF0',
+  },
+
+  doctorPaymentNoteText: {
+    marginTop: 5,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#52637A',
+    fontWeight: '600',
+  },
+
+  adminRejectionNote: {
+    marginTop: 12,
+    padding: 13,
+    borderRadius: 11,
+    backgroundColor: '#FFF0ED',
+    borderWidth: 1,
+    borderColor: '#F2D4CE',
+  },
+
+  adminRejectionLabel: {
+    fontSize: 8,
+    letterSpacing: 1,
+    fontWeight: '900',
+    color: '#B34C40',
+  },
+
+  adminRejectionText: {
+    marginTop: 5,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#74433C',
+    fontWeight: '700',
+  },
+
+  reviewedAtText: {
+    marginTop: 7,
+    fontSize: 10,
+    color: '#A77B74',
+  },
+
+  viewPendingProofButton: {
+    marginTop: 13,
+    minHeight: 57,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3E8EE',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+
+  viewPendingProofIcon: {
+    fontSize: 19,
+    color: '#147D82',
+    marginRight: 10,
+  },
+
+  viewPendingProofTextWrap: {
+    flex: 1,
+  },
+
+  viewPendingProofTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#34445A',
+  },
+
+  viewPendingProofSubtext: {
+    marginTop: 3,
+    fontSize: 9,
+    color: '#8995A4',
+  },
+
+  viewPendingProofArrow: {
+    fontSize: 23,
+    color: '#8A97A6',
+    marginLeft: 7,
+  },
+
+  pendingPaymentActions: {
+    flexDirection: 'row',
+    marginHorizontal: -4,
+    marginTop: 14,
+  },
+
+  pendingActionHalf: {
+    flex: 1,
+    marginHorizontal: 4,
+  },
+
+  rejectPaymentButton: {
+    minHeight: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFF0ED',
+    borderWidth: 1,
+    borderColor: '#F0CEC7',
+    paddingHorizontal: 10,
+  },
+
+  rejectPaymentButtonText: {
+    color: '#A94739',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+  verifyPaymentButton: {
+    minHeight: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#16815E',
+    borderWidth: 1,
+    borderColor: '#16815E',
+    paddingHorizontal: 10,
+  },
+
+  verifyPaymentButtonText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+  rejectedBottomInfo: {
+    marginTop: 13,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F0DCD8',
+  },
+
+  rejectedBottomText: {
+    fontSize: 10,
+    color: '#956A63',
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+
+  noPendingPaymentCard: {
+    marginBottom: 12,
+    padding: 15,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FCFA',
+    borderWidth: 1,
+    borderColor: '#DCEDE6',
+  },
+
+  noPendingIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#E4F5EE',
+  },
+
+  noPendingIconText: {
+    color: '#16815E',
+    fontSize: 17,
+    fontWeight: '900',
+  },
+
+  noPendingTextWrap: {
+    flex: 1,
+    marginLeft: 11,
+  },
+
+  noPendingTitle: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#34445A',
+  },
+
+  noPendingText: {
+    marginTop: 3,
+    fontSize: 10,
+    lineHeight: 15,
+    color: '#82908E',
+  },
+
+
+  /* =======================================================
+     BILLING / ACCESS
+  ======================================================= */
 
   adminPaymentActions: {
     marginTop: 10,
@@ -2049,38 +4147,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
 
-  paymentSummaryRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-
-  paymentDueSummary: {
-    alignItems: 'flex-end',
-  },
-
-  paymentSummaryLabel: {
-    color: '#8B98A8',
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.8,
-  },
-
-  paymentSummaryValue: {
-    color: '#34445A',
-    fontSize: 14,
-    fontWeight: '800',
-    marginTop: 5,
-  },
-
-  paymentSummaryPaid: {
-    color: '#16815E',
-  },
-
-  paymentSummaryDue: {
-    color: '#B76C12',
-  },
-
   paymentControls: {
     flexDirection: 'row',
     marginHorizontal: -4,
@@ -2091,6 +4157,11 @@ const styles = StyleSheet.create({
     flex: 1,
     marginHorizontal: 4,
   },
+
+
+  /* =======================================================
+     STATS
+  ======================================================= */
 
   statsGrid: {
     flexDirection: 'row',
@@ -2149,9 +4220,14 @@ const styles = StyleSheet.create({
     color: '#98A4B4',
   },
 
+
+  /* =======================================================
+     SNAPSHOT
+  ======================================================= */
+
   snapshotCard: {
     marginTop: 10,
-    padding: 18,
+    padding: 19,
     backgroundColor: '#14233B',
     borderRadius: 16,
   },
@@ -2169,32 +4245,25 @@ const styles = StyleSheet.create({
     color: '#8795A9',
   },
 
-  cardTitle: {
+  snapshotTitle: {
+    marginTop: 4,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#FFFFFF',
+  },
+
+  analyticsTitle: {
     marginTop: 4,
     fontSize: 18,
     fontWeight: '900',
     color: '#14233B',
   },
 
-  snapshotCard: {
-    marginTop: 10,
-    padding: 19,
-    backgroundColor: '#14233B',
-    borderRadius: 16,
-  },
-
-  snapshotCard: {
-    marginTop: 10,
-    padding: 19,
-    backgroundColor: '#14233B',
-    borderRadius: 16,
-  },
-
-  snapshotCard: {
-    marginTop: 10,
-    padding: 19,
-    backgroundColor: '#14233B',
-    borderRadius: 16,
+  profileTitle: {
+    marginTop: 4,
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#14233B',
   },
 
   snapshotBadge: {
@@ -2238,6 +4307,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#33465F',
     marginHorizontal: 12,
   },
+
+
+  /* =======================================================
+     ANALYTICS
+  ======================================================= */
 
   analyticsCard: {
     marginTop: 10,
@@ -2340,6 +4414,11 @@ const styles = StyleSheet.create({
     color: '#7C8DA3',
   },
 
+
+  /* =======================================================
+     PROFILE
+  ======================================================= */
+
   profileCard: {
     marginTop: 10,
     padding: 18,
@@ -2387,6 +4466,11 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
 
+
+  /* =======================================================
+     DANGER
+  ======================================================= */
+
   dangerCard: {
     marginTop: 10,
     padding: 18,
@@ -2431,6 +4515,11 @@ const styles = StyleSheet.create({
     fontWeight: '900',
   },
 
+
+  /* =======================================================
+     EMPTY
+  ======================================================= */
+
   emptyState: {
     paddingVertical: 28,
     alignItems: 'center',
@@ -2450,6 +4539,127 @@ const styles = StyleSheet.create({
     color: '#98A4B4',
   },
 
+
+  /* =======================================================
+     REJECTION MODAL
+  ======================================================= */
+
+  rejectModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(10, 20, 35, 0.58)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+
+  rejectModalCard: {
+    width: '100%',
+    maxWidth: 520,
+    borderRadius: 18,
+    padding: 20,
+    backgroundColor: '#FFFFFF',
+  },
+
+  rejectModalIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FCE7E3',
+    marginBottom: 12,
+  },
+
+  rejectModalIconText: {
+    fontSize: 19,
+    fontWeight: '900',
+    color: '#A94739',
+  },
+
+  rejectModalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#14233B',
+  },
+
+  rejectModalDescription: {
+    marginTop: 6,
+    fontSize: 12,
+    lineHeight: 18,
+    color: '#718096',
+  },
+
+  rejectInputLabel: {
+    marginTop: 18,
+    fontSize: 8,
+    letterSpacing: 1.1,
+    fontWeight: '900',
+    color: '#7D8998',
+  },
+
+  rejectTextInput: {
+    marginTop: 7,
+    minHeight: 110,
+    maxHeight: 180,
+    borderRadius: 11,
+    borderWidth: 1,
+    borderColor: '#DCE3EB',
+    paddingHorizontal: 12,
+    paddingVertical: 11,
+    color: '#34445A',
+    fontSize: 13,
+    lineHeight: 19,
+    backgroundColor: '#FAFCFE',
+  },
+
+  rejectCharacterCount: {
+    marginTop: 5,
+    textAlign: 'right',
+    fontSize: 9,
+    color: '#9AA6B5',
+  },
+
+  rejectModalActions: {
+    flexDirection: 'row',
+    marginHorizontal: -4,
+    marginTop: 18,
+  },
+
+  rejectCancelButton: {
+    flex: 1,
+    marginHorizontal: 4,
+    minHeight: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F2F5F8',
+    borderWidth: 1,
+    borderColor: '#E0E6ED',
+  },
+
+  rejectCancelText: {
+    color: '#52637A',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+  rejectConfirmButton: {
+    flex: 1,
+    marginHorizontal: 4,
+    minHeight: 46,
+    borderRadius: 11,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#A94739',
+  },
+
+  rejectConfirmText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+
+
   bottomSpace: {
     height: 30,
   },
@@ -2457,4 +4667,5 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
   },
+
 });

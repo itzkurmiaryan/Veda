@@ -9,8 +9,10 @@ import {
   Alert,
   Animated,
   Easing,
+  Image,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -78,6 +80,17 @@ export default function Dashboard({ navigation }) {
   const [requestSent, setRequestSent] =
     useState(false);
 
+  /* Notification UI */
+
+  const [notificationCenterVisible, setNotificationCenterVisible] =
+    useState(false);
+
+  const [selectedNotification, setSelectedNotification] =
+    useState(null);
+
+  const [notificationPhotoVisible, setNotificationPhotoVisible] =
+    useState(false);
+
 
   /* =====================================================
      KEEP LOCAL DOCTOR DATA IN SYNC
@@ -110,6 +123,10 @@ export default function Dashboard({ navigation }) {
 
   const rotateAnim = useRef(
     new Animated.Value(0)
+  ).current;
+
+  const notificationPulseAnim = useRef(
+    new Animated.Value(1)
   ).current;
 
 
@@ -219,8 +236,64 @@ export default function Dashboard({ navigation }) {
 
 
   /* =====================================================
+     NOTIFICATION PULSE
+  ===================================================== */
+
+  const unreadNotificationCount =
+    notifications.filter(
+      item => !item?.readAt
+    ).length;
+
+
+  useEffect(() => {
+
+    if (unreadNotificationCount <= 0) {
+      notificationPulseAnim.stopAnimation();
+      notificationPulseAnim.setValue(1);
+      return;
+    }
+
+    const pulse = Animated.loop(
+      Animated.sequence([
+
+        Animated.timing(
+          notificationPulseAnim,
+          {
+            toValue: 1.06,
+            duration: 900,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }
+        ),
+
+        Animated.timing(
+          notificationPulseAnim,
+          {
+            toValue: 1,
+            duration: 900,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }
+        ),
+
+      ])
+    );
+
+    pulse.start();
+
+    return () => {
+      pulse.stop();
+    };
+
+  }, [
+    unreadNotificationCount,
+    notificationPulseAnim,
+  ]);
+
+
+  /* =====================================================
      LOAD CURRENT DOCTOR
-===================================================== */
+  ===================================================== */
 
   const loadDoctor = useCallback(
     async () => {
@@ -242,10 +315,6 @@ export default function Dashboard({ navigation }) {
 
           setDoctorData(nextDoctor);
 
-          /*
-            If backend says request is already pending,
-            keep local request state synced.
-          */
           if (
             String(
               nextDoctor?.accessRequestStatus || ''
@@ -297,7 +366,6 @@ export default function Dashboard({ navigation }) {
 
         const nextPatients =
           patientsResponse?.data?.data || [];
-
 
         const nextAnalytics =
           analyticsResponse?.data?.data || null;
@@ -485,6 +553,7 @@ export default function Dashboard({ navigation }) {
               error
             );
 
+
           } finally {
 
             if (mounted) {
@@ -575,16 +644,6 @@ export default function Dashboard({ navigation }) {
             response?.data || {};
 
 
-          /*
-            Backend:
-            {
-              success,
-              alreadyPending,
-              message,
-              status: 'pending'
-            }
-          */
-
           if (
             responseData?.status === 'pending' ||
             responseData?.alreadyPending
@@ -619,18 +678,7 @@ export default function Dashboard({ navigation }) {
           }
 
 
-          /*
-            Refresh doctor information immediately
-            so the UI reflects the backend state.
-          */
-
           await loadDoctor();
-
-
-          /*
-            Refresh notifications because admin may
-            receive / trigger notification-related state.
-          */
 
           await loadNotifications();
 
@@ -699,9 +747,9 @@ export default function Dashboard({ navigation }) {
     patients.slice(0, 5);
 
 
-  /*
-    Access state
-  */
+  /* =====================================================
+     ACCESS STATE
+  ===================================================== */
 
   const isActive =
     currentDoctor?.active !== false;
@@ -719,21 +767,13 @@ export default function Dashboard({ navigation }) {
     accessRequestStatus === 'pending';
 
 
-  /*
-    Access request should be visible when:
-
-    - doctor account is inactive
-    - request isn't already pending
-  */
-
   const shouldShowAccessRequest =
-    !isActive &&
-    !isRequestPending;
+    !isActive && !isRequestPending;
 
 
-  /*
-    Payment status
-  */
+  /* =====================================================
+     PAYMENT STATUS
+  ===================================================== */
 
   const paymentStatus =
     String(
@@ -748,56 +788,321 @@ export default function Dashboard({ navigation }) {
     );
 
 
-  const activeNotification =
-    notifications[0] || null;
-
-
   /* =====================================================
-     NOTIFICATION ACTIONS
+     NOTIFICATION HELPERS
   ===================================================== */
 
-  const dismissNotification =
-    async () => {
+  const getNotificationIcon =
+    notification => {
 
-      if (!activeNotification) {
-        return;
+      const type =
+        String(
+          notification?.type || ''
+        ).toLowerCase();
+
+
+      if (
+        type === 'payment_verified' ||
+        type === 'access_approved'
+      ) {
+        return '✓';
       }
 
 
-      if (activeNotification._id) {
+      if (
+        type === 'payment_due' ||
+        type === 'payment_request'
+      ) {
+        return '₹';
+      }
 
-        try {
 
-          await api.patch(
-            `/auth/notifications/${activeNotification._id}/read`
-          );
+      if (
+        type === 'access_request' ||
+        type === 'access_rejected'
+      ) {
+        return '!';
+      }
 
-        } catch (error) {
 
-          console.error(
-            'NOTIFICATION READ ERROR:',
-            error?.response?.data ||
-            error?.message ||
-            error
-          );
+      if (
+        type === 'admin_custom'
+      ) {
+        return '✦';
+      }
 
+
+      return '•';
+
+    };
+
+
+  const getNotificationLabel =
+    notification => {
+
+      const type =
+        String(
+          notification?.type || ''
+        ).toLowerCase();
+
+
+      if (type === 'admin_custom') {
+        return 'VEDA MESSAGE';
+      }
+
+
+      if (
+        type === 'payment_verified'
+      ) {
+        return 'PAYMENT VERIFIED';
+      }
+
+
+      if (
+        type === 'payment_due'
+      ) {
+        return 'PAYMENT REMINDER';
+      }
+
+
+      if (
+        type === 'payment_request'
+      ) {
+        return 'PAYMENT REQUEST';
+      }
+
+
+      if (
+        type === 'access_approved'
+      ) {
+        return 'ACCESS APPROVED';
+      }
+
+
+      if (
+        type === 'access_rejected'
+      ) {
+        return 'ACCESS UPDATE';
+      }
+
+
+      if (
+        type === 'access_request'
+      ) {
+        return 'ACCESS REQUEST';
+      }
+
+
+      return 'VEDA UPDATE';
+
+    };
+
+
+  const getNotificationPhoto =
+    notification => {
+
+      const photo =
+        notification?.photo;
+
+
+      if (!photo) {
+        return null;
+      }
+
+
+      if (
+        typeof photo === 'string'
+      ) {
+
+        if (
+          photo.startsWith('data:image')
+        ) {
+          return photo;
         }
 
+        return `data:image/jpeg;base64,${photo}`;
+
       }
 
 
-      setNotifications(
-        current =>
-          current.slice(1)
+      if (
+        photo?.data
+      ) {
+
+        const contentType =
+          photo?.contentType ||
+          'image/jpeg';
+
+
+        if (
+          String(photo.data)
+            .startsWith('data:')
+        ) {
+          return photo.data;
+        }
+
+
+        return `data:${contentType};base64,${photo.data}`;
+
+      }
+
+
+      return null;
+
+    };
+
+
+  const formatNotificationDate =
+    value => {
+
+      if (!value) {
+        return '';
+      }
+
+
+      const date =
+        new Date(value);
+
+
+      if (
+        Number.isNaN(
+          date.getTime()
+        )
+      ) {
+        return '';
+      }
+
+
+      return date.toLocaleString(
+        'en-IN',
+        {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }
       );
 
     };
 
 
-  const deleteActiveNotification =
-    async () => {
+  /* =====================================================
+     MARK NOTIFICATION READ
+  ===================================================== */
 
-      if (!activeNotification?._id) {
+  const markNotificationRead =
+    async notification => {
+
+      if (!notification?._id) {
+        return;
+      }
+
+
+      if (notification?.readAt) {
+        return;
+      }
+
+
+      try {
+
+        await api.patch(
+          `/auth/notifications/${notification._id}/read`
+        );
+
+
+        setNotifications(
+          current =>
+            current.map(
+              item =>
+                item._id === notification._id
+                  ? {
+                      ...item,
+                      readAt:
+                        new Date().toISOString(),
+                    }
+                  : item
+            )
+        );
+
+
+        setSelectedNotification(
+          current =>
+            current?._id === notification._id
+              ? {
+                  ...current,
+                  readAt:
+                    new Date().toISOString(),
+                }
+              : current
+        );
+
+
+      } catch (error) {
+
+        console.error(
+          'NOTIFICATION READ ERROR:',
+          error?.response?.data ||
+          error?.message ||
+          error
+        );
+
+      }
+
+    };
+
+
+  /* =====================================================
+     OPEN NOTIFICATION
+  ===================================================== */
+
+  const openNotification =
+    async notification => {
+
+      if (!notification) {
+        return;
+      }
+
+
+      setNotificationCenterVisible(
+        false
+      );
+
+
+      setSelectedNotification(
+        notification
+      );
+
+
+      await markNotificationRead(
+        notification
+      );
+
+    };
+
+
+  /* =====================================================
+     CLOSE NOTIFICATION DETAIL
+  ===================================================== */
+
+  const closeNotificationDetail =
+    () => {
+
+      setSelectedNotification(
+        null
+      );
+
+    };
+
+
+  /* =====================================================
+     DELETE NOTIFICATION
+  ===================================================== */
+
+  const deleteNotification =
+    async notification => {
+
+      if (!notification?._id) {
         return;
       }
 
@@ -805,7 +1110,7 @@ export default function Dashboard({ navigation }) {
       try {
 
         await api.delete(
-          `/auth/notifications/${activeNotification._id}`
+          `/auth/notifications/${notification._id}`
         );
 
 
@@ -814,9 +1119,20 @@ export default function Dashboard({ navigation }) {
             current.filter(
               item =>
                 item._id !==
-                activeNotification._id
+                notification._id
             )
         );
+
+
+        if (
+          selectedNotification?._id ===
+          notification._id
+        ) {
+          setSelectedNotification(
+            null
+          );
+        }
+
 
       } catch (error) {
 
@@ -827,7 +1143,47 @@ export default function Dashboard({ navigation }) {
           error
         );
 
+
+        Alert.alert(
+          'Unable to delete',
+          error?.response?.data?.message ||
+          'Unable to delete this notification right now.'
+        );
+
       }
+
+    };
+
+
+  /* =====================================================
+     DELETE ACTIVE NOTIFICATION
+  ===================================================== */
+
+  const deleteActiveNotification =
+    async () => {
+
+      if (!selectedNotification) {
+        return;
+      }
+
+
+      await deleteNotification(
+        selectedNotification
+      );
+
+    };
+
+
+  /* =====================================================
+     OPEN NOTIFICATION CENTER
+  ===================================================== */
+
+  const openNotificationCenter =
+    () => {
+
+      setNotificationCenterVisible(
+        true
+      );
 
     };
 
@@ -910,29 +1266,117 @@ export default function Dashboard({ navigation }) {
           </View>
 
 
-          <Animated.View
-            style={[
-              styles.profileCircle,
-              {
+          <View style={styles.topRightActions}>
+
+            {/* Notification Bell */}
+
+            <Animated.View
+              style={{
                 transform: [
                   {
-                    translateY: floatY,
+                    scale:
+                      notificationPulseAnim,
                   },
                 ],
-              },
-            ]}
-          >
+              }}
+            >
 
-            <Text style={styles.profileInitial}>
-              {doctorName
-                ?.charAt(0)
-                ?.toUpperCase() || 'D'}
-            </Text>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Notifications"
+                onPress={
+                  openNotificationCenter
+                }
+                style={({ pressed }) => [
+                  styles.notificationBell,
+                  pressed &&
+                  styles.notificationBellPressed,
+                ]}
+              >
+
+                <Text
+                  style={
+                    styles.notificationBellIcon
+                  }
+                >
+                  ♧
+                </Text>
+
+                {/* Small bell-like notification symbol */}
+
+                <View
+                  style={
+                    styles.notificationBellInner
+                  }
+                >
+                  <Text
+                    style={
+                      styles.notificationBellInnerText
+                    }
+                  >
+                    •
+                  </Text>
+                </View>
 
 
-            <View style={styles.profileOnline} />
+                {unreadNotificationCount > 0 ? (
 
-          </Animated.View>
+                  <View
+                    style={
+                      styles.notificationBadge
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.notificationBadgeText
+                      }
+                    >
+                      {unreadNotificationCount > 99
+                        ? '99+'
+                        : unreadNotificationCount}
+                    </Text>
+
+                  </View>
+
+                ) : null}
+
+              </Pressable>
+
+            </Animated.View>
+
+
+            {/* Profile */}
+
+            <Animated.View
+              style={[
+                styles.profileCircle,
+                {
+                  transform: [
+                    {
+                      translateY: floatY,
+                    },
+                  ],
+                },
+              ]}
+            >
+
+              <Text style={styles.profileInitial}>
+                {doctorName
+                  ?.charAt(0)
+                  ?.toUpperCase() || 'D'}
+              </Text>
+
+
+              <View
+                style={
+                  styles.profileOnline
+                }
+              />
+
+            </Animated.View>
+
+          </View>
 
         </View>
 
@@ -968,11 +1412,19 @@ export default function Dashboard({ navigation }) {
 
             <View style={styles.clinicBadge}>
 
-              <Text style={styles.clinicBadgeIcon}>
+              <Text
+                style={
+                  styles.clinicBadgeIcon
+                }
+              >
                 ✚
               </Text>
 
-              <Text style={styles.clinicBadgeText}>
+              <Text
+                style={
+                  styles.clinicBadgeText
+                }
+              >
                 VEDA • DOCTOR CONSOLE
               </Text>
 
@@ -984,12 +1436,20 @@ export default function Dashboard({ navigation }) {
             </Text>
 
 
-            <Text style={styles.clinicTitleAccent}>
+            <Text
+              style={
+                styles.clinicTitleAccent
+              }
+            >
               in one clinical space.
             </Text>
 
 
-            <Text style={styles.clinicDescription}>
+            <Text
+              style={
+                styles.clinicDescription
+              }
+            >
               Manage your patients, visits and
               prescriptions with a focused
               professional workspace.
@@ -1006,7 +1466,11 @@ export default function Dashboard({ navigation }) {
             />
 
 
-            <View style={styles.clinicDivider} />
+            <View
+              style={
+                styles.clinicDivider
+              }
+            />
 
 
             <ClinicalMiniStat
@@ -1019,7 +1483,11 @@ export default function Dashboard({ navigation }) {
             />
 
 
-            <View style={styles.clinicDivider} />
+            <View
+              style={
+                styles.clinicDivider
+              }
+            />
 
 
             <ClinicalMiniStat
@@ -1131,7 +1599,11 @@ export default function Dashboard({ navigation }) {
             ANALYTICS
         ================================================= */}
 
-        <View style={styles.analyticsHeading}>
+        <View
+          style={
+            styles.analyticsHeading
+          }
+        >
 
           <SectionHeader
             eyebrow="PRACTICE INSIGHTS"
@@ -1161,7 +1633,11 @@ export default function Dashboard({ navigation }) {
 
         ) : (
 
-          <View style={styles.loadingContainer}>
+          <View
+            style={
+              styles.loadingContainer
+            }
+          >
 
             {loading ? (
 
@@ -1173,7 +1649,11 @@ export default function Dashboard({ navigation }) {
 
               <Card>
 
-                <View style={styles.noAnalytics}>
+                <View
+                  style={
+                    styles.noAnalytics
+                  }
+                >
 
                   <Text
                     style={
@@ -1207,7 +1687,11 @@ export default function Dashboard({ navigation }) {
             RECENT PATIENTS
         ================================================= */}
 
-        <View style={styles.patientHeading}>
+        <View
+          style={
+            styles.patientHeading
+          }
+        >
 
           <SectionHeader
             eyebrow="PATIENT CARE"
@@ -1230,7 +1714,11 @@ export default function Dashboard({ navigation }) {
               ]}
             >
 
-              <Text style={styles.viewAllText}>
+              <Text
+                style={
+                  styles.viewAllText
+                }
+              >
                 View all →
               </Text>
 
@@ -1341,18 +1829,415 @@ export default function Dashboard({ navigation }) {
       </FadeIn>
 
 
-      {/* =================================================
-          NOTIFICATION MODAL
-      ================================================= */}
+      {/* =====================================================
+          NOTIFICATION CENTER
+      ===================================================== */}
 
       <Modal
         visible={
-          Boolean(activeNotification)
+          notificationCenterVisible
+        }
+        transparent
+        animationType="slide"
+        onRequestClose={() =>
+          setNotificationCenterVisible(
+            false
+          )
+        }
+      >
+
+        <View
+          style={
+            styles.notificationCenterOverlay
+          }
+        >
+
+          <View
+            style={
+              styles.notificationCenterModal
+            }
+          >
+
+            {/* Header */}
+
+            <View
+              style={
+                styles.notificationCenterHeader
+              }
+            >
+
+              <View
+                style={
+                  styles.notificationCenterHeaderLeft
+                }
+              >
+
+                <View
+                  style={
+                    styles.notificationHeaderIcon
+                  }
+                >
+
+                  <Text
+                    style={
+                      styles.notificationHeaderIconText
+                    }
+                  >
+                    •
+                  </Text>
+
+                </View>
+
+
+                <View>
+
+                  <Text
+                    style={
+                      styles.notificationCenterEyebrow
+                    }
+                  >
+                    VEDA NOTIFICATIONS
+                  </Text>
+
+
+                  <Text
+                    style={
+                      styles.notificationCenterTitle
+                    }
+                  >
+                    Notifications
+                  </Text>
+
+                </View>
+
+              </View>
+
+
+              <Pressable
+                onPress={() =>
+                  setNotificationCenterVisible(
+                    false
+                  )
+                }
+                style={
+                  styles.notificationCloseButton
+                }
+              >
+
+                <Text
+                  style={
+                    styles.notificationCloseText
+                  }
+                >
+                  ×
+                </Text>
+
+              </Pressable>
+
+            </View>
+
+
+            {/* Summary */}
+
+            <View
+              style={
+                styles.notificationSummary
+              }
+            >
+
+              <View
+                style={
+                  styles.notificationSummaryDot
+                }
+              />
+
+              <Text
+                style={
+                  styles.notificationSummaryText
+                }
+              >
+                {unreadNotificationCount > 0
+                  ? `${unreadNotificationCount} unread notification${
+                      unreadNotificationCount > 1
+                        ? 's'
+                        : ''
+                    }`
+                  : 'You are all caught up'}
+              </Text>
+
+            </View>
+
+
+            {/* Notification list */}
+
+            <ScrollView
+              showsVerticalScrollIndicator={
+                false
+              }
+              contentContainerStyle={
+                styles.notificationListContent
+              }
+            >
+
+              {notifications.length === 0 ? (
+
+                <View
+                  style={
+                    styles.emptyNotificationState
+                  }
+                >
+
+                  <View
+                    style={
+                      styles.emptyNotificationIcon
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.emptyNotificationIconText
+                      }
+                    >
+                      ✓
+                    </Text>
+
+                  </View>
+
+
+                  <Text
+                    style={
+                      styles.emptyNotificationTitle
+                    }
+                  >
+                    No notifications
+                  </Text>
+
+
+                  <Text
+                    style={
+                      styles.emptyNotificationText
+                    }
+                  >
+                    New Veda updates, payment updates
+                    and access notifications will appear
+                    here.
+                  </Text>
+
+                </View>
+
+              ) : (
+
+                notifications.map(
+                  (notification, index) => {
+
+                    const unread =
+                      !notification?.readAt;
+
+                    const photo =
+                      getNotificationPhoto(
+                        notification
+                      );
+
+                    return (
+
+                      <Pressable
+                        key={
+                          notification?._id ||
+                          `notification-${index}`
+                        }
+                        onPress={() =>
+                          openNotification(
+                            notification
+                          )
+                        }
+                        style={({ pressed }) => [
+                          styles.notificationListItem,
+                          unread &&
+                          styles.notificationListItemUnread,
+                          pressed &&
+                          styles.notificationListItemPressed,
+                        ]}
+                      >
+
+                        <View
+                          style={[
+                            styles.notificationListIcon,
+                            unread &&
+                            styles.notificationListIconUnread,
+                          ]}
+                        >
+
+                          <Text
+                            style={[
+                              styles.notificationListIconText,
+                              unread &&
+                              styles.notificationListIconTextUnread,
+                            ]}
+                          >
+                            {getNotificationIcon(
+                              notification
+                            )}
+                          </Text>
+
+                        </View>
+
+
+                        <View
+                          style={
+                            styles.notificationListBody
+                          }
+                        >
+
+                          <View
+                            style={
+                              styles.notificationListTopRow
+                            }
+                          >
+
+                            <Text
+                              style={
+                                styles.notificationListEyebrow
+                              }
+                            >
+                              {getNotificationLabel(
+                                notification
+                              )}
+                            </Text>
+
+
+                            {unread ? (
+
+                              <View
+                                style={
+                                  styles.unreadPill
+                                }
+                              >
+
+                                <Text
+                                  style={
+                                    styles.unreadPillText
+                                  }
+                                >
+                                  NEW
+                                </Text>
+
+                              </View>
+
+                            ) : null}
+
+                          </View>
+
+
+                          <Text
+                            style={
+                              styles.notificationListTitle
+                            }
+                            numberOfLines={2}
+                          >
+                            {notification?.title ||
+                              'Notification'}
+                          </Text>
+
+
+                          <Text
+                            style={
+                              styles.notificationListMessage
+                            }
+                            numberOfLines={2}
+                          >
+                            {notification?.message ||
+                              ''}
+                          </Text>
+
+
+                          <View
+                            style={
+                              styles.notificationListBottom
+                            }
+                          >
+
+                            <Text
+                              style={
+                                styles.notificationListDate
+                              }
+                            >
+                              {formatNotificationDate(
+                                notification?.createdAt
+                              )}
+                            </Text>
+
+
+                            {photo ? (
+
+                              <View
+                                style={
+                                  styles.photoAttachedPill
+                                }
+                              >
+
+                                <Text
+                                  style={
+                                    styles.photoAttachedText
+                                  }
+                                >
+                                  PHOTO
+                                </Text>
+
+                              </View>
+
+                            ) : null}
+
+                          </View>
+
+                        </View>
+
+
+                        <View
+                          style={
+                            styles.notificationListArrowBox
+                          }
+                        >
+
+                          <Text
+                            style={
+                              styles.notificationListArrow
+                            }
+                          >
+                            →
+                          </Text>
+
+                        </View>
+
+                      </Pressable>
+
+                    );
+
+                  }
+                )
+
+              )}
+
+            </ScrollView>
+
+          </View>
+
+        </View>
+
+      </Modal>
+
+
+      {/* =====================================================
+          NOTIFICATION DETAIL
+      ===================================================== */}
+
+      <Modal
+        visible={
+          Boolean(selectedNotification)
         }
         transparent
         animationType="fade"
         onRequestClose={
-          dismissNotification
+          closeNotificationDetail
         }
       >
 
@@ -1367,6 +2252,8 @@ export default function Dashboard({ navigation }) {
               styles.notificationModal
             }
           >
+
+            {/* Top row */}
 
             <View
               style={
@@ -1385,27 +2272,64 @@ export default function Dashboard({ navigation }) {
                     styles.notificationMarkText
                   }
                 >
-                  {
-                    activeNotification?.type ===
-                    'payment_verified'
-                      ? '✓'
-                      : activeNotification?.type ===
-                        'access_approved'
-                        ? '✓'
-                        : '₹'
-                  }
+                  {getNotificationIcon(
+                    selectedNotification
+                  )}
                 </Text>
 
               </View>
 
 
-              <Text
+              <View
                 style={
-                  styles.notificationEyebrow
+                  styles.notificationHeaderTextArea
                 }
               >
-                VEDA UPDATE
-              </Text>
+
+                <Text
+                  style={
+                    styles.notificationEyebrow
+                  }
+                >
+                  {getNotificationLabel(
+                    selectedNotification
+                  )}
+                </Text>
+
+
+                {selectedNotification?.readAt ? (
+
+                  <Text
+                    style={
+                      styles.readStatusText
+                    }
+                  >
+                    READ
+                  </Text>
+
+                ) : null}
+
+              </View>
+
+
+              <Pressable
+                onPress={
+                  closeNotificationDetail
+                }
+                style={
+                  styles.detailCloseButton
+                }
+              >
+
+                <Text
+                  style={
+                    styles.detailCloseText
+                  }
+                >
+                  ×
+                </Text>
+
+              </Pressable>
 
             </View>
 
@@ -1416,7 +2340,7 @@ export default function Dashboard({ navigation }) {
               }
             >
               {
-                activeNotification?.title ||
+                selectedNotification?.title ||
                 'Notification'
               }
             </Text>
@@ -1428,15 +2352,101 @@ export default function Dashboard({ navigation }) {
               }
             >
               {
-                activeNotification?.message ||
+                selectedNotification?.message ||
                 ''
               }
             </Text>
 
 
+            {/* Attached photo */}
+
+            {getNotificationPhoto(
+              selectedNotification
+            ) ? (
+
+              <Pressable
+                onPress={() =>
+                  setNotificationPhotoVisible(
+                    true
+                  )
+                }
+                style={
+                  styles.notificationPhotoCard
+                }
+              >
+
+                <Image
+                  source={{
+                    uri:
+                      getNotificationPhoto(
+                        selectedNotification
+                      ),
+                  }}
+                  style={
+                    styles.notificationPhoto
+                  }
+                  resizeMode="cover"
+                />
+
+
+                <View
+                  style={
+                    styles.notificationPhotoOverlay
+                  }
+                >
+
+                  <View
+                    style={
+                      styles.notificationPhotoViewButton
+                    }
+                  >
+
+                    <Text
+                      style={
+                        styles.notificationPhotoViewText
+                      }
+                    >
+                      View full photo
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.notificationPhotoViewArrow
+                      }
+                    >
+                      ↗
+                    </Text>
+
+                  </View>
+
+                </View>
+
+              </Pressable>
+
+            ) : null}
+
+
+            {selectedNotification?.createdAt ? (
+
+              <Text
+                style={
+                  styles.notificationDetailDate
+                }
+              >
+                Received{' '}
+                {formatNotificationDate(
+                  selectedNotification.createdAt
+                )}
+              </Text>
+
+            ) : null}
+
+
+            {/* Got it */}
+
             <Pressable
               onPress={
-                dismissNotification
+                closeNotificationDetail
               }
               style={({ pressed }) => [
                 styles.notificationButton,
@@ -1450,7 +2460,7 @@ export default function Dashboard({ navigation }) {
                   styles.notificationButtonText
                 }
               >
-                Got it
+                Done
               </Text>
 
 
@@ -1464,6 +2474,8 @@ export default function Dashboard({ navigation }) {
 
             </Pressable>
 
+
+            {/* Delete */}
 
             <Pressable
               accessibilityRole="button"
@@ -1486,6 +2498,75 @@ export default function Dashboard({ navigation }) {
             </Pressable>
 
           </View>
+
+        </View>
+
+      </Modal>
+
+
+      {/* =====================================================
+          FULL NOTIFICATION PHOTO
+      ===================================================== */}
+
+      <Modal
+        visible={
+          notificationPhotoVisible
+        }
+        transparent
+        animationType="fade"
+        onRequestClose={() =>
+          setNotificationPhotoVisible(
+            false
+          )
+        }
+      >
+
+        <View
+          style={
+            styles.fullPhotoOverlay
+          }
+        >
+
+          <Pressable
+            style={
+              styles.fullPhotoClose
+            }
+            onPress={() =>
+              setNotificationPhotoVisible(
+                false
+              )
+            }
+          >
+
+            <Text
+              style={
+                styles.fullPhotoCloseText
+              }
+            >
+              ×
+            </Text>
+
+          </Pressable>
+
+
+          {getNotificationPhoto(
+            selectedNotification
+          ) ? (
+
+            <Image
+              source={{
+                uri:
+                  getNotificationPhoto(
+                    selectedNotification
+                  ),
+              }}
+              style={
+                styles.fullNotificationPhoto
+              }
+              resizeMode="contain"
+            />
+
+          ) : null}
 
         </View>
 
@@ -2339,118 +3420,6 @@ function EmptyPatients({
 const styles = StyleSheet.create({
 
   /* ===================================================
-     NOTIFICATION
-  =================================================== */
-
-  notificationOverlay: {
-    flex: 1,
-    backgroundColor:
-      'rgba(5, 18, 30, 0.62)',
-    justifyContent: 'center',
-    padding: 24,
-  },
-
-  notificationModal: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#E2EAF0',
-    shadowColor: '#071B2B',
-    shadowOffset: {
-      width: 0,
-      height: 18,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 30,
-    elevation: 12,
-  },
-
-  notificationTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-
-  notificationMark: {
-    width: 42,
-    height: 42,
-    borderRadius: 14,
-    backgroundColor: '#E4F5EF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 11,
-  },
-
-  notificationMarkText: {
-    color: '#147A58',
-    fontSize: 22,
-    fontWeight: '900',
-  },
-
-  notificationEyebrow: {
-    color: '#14805E',
-    fontSize: 10,
-    fontWeight: '900',
-    letterSpacing: 1.4,
-  },
-
-  notificationTitle: {
-    color: '#102637',
-    fontSize: 23,
-    lineHeight: 29,
-    fontWeight: '800',
-    marginBottom: 9,
-  },
-
-  notificationMessage: {
-    color: '#526676',
-    fontSize: 15,
-    lineHeight: 23,
-    marginBottom: 23,
-  },
-
-  notificationButton: {
-    minHeight: 50,
-    borderRadius: 12,
-    backgroundColor: '#102C3C',
-    paddingHorizontal: 17,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-
-  notificationButtonPressed: {
-    opacity: 0.84,
-  },
-
-  notificationButtonText: {
-    color: '#FFFFFF',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-
-  notificationButtonArrow: {
-    color: '#A9D8C5',
-    fontSize: 20,
-    fontWeight: '700',
-  },
-
-  notificationDeleteButton: {
-    alignSelf: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    marginTop: 3,
-  },
-
-  notificationDeleteText: {
-    color: '#A62F3D',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-
-
-  /* ===================================================
      TOP
   =================================================== */
 
@@ -2465,6 +3434,12 @@ const styles = StyleSheet.create({
   topLeft: {
     flex: 1,
     paddingRight: 14,
+  },
+
+  topRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
   },
 
   helloRow: {
@@ -2522,10 +3497,83 @@ const styles = StyleSheet.create({
     marginTop: 7,
   },
 
+
+  /* ===================================================
+     NOTIFICATION BELL
+  =================================================== */
+
+  notificationBell: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    backgroundColor: '#F4F8FC',
+    borderWidth: 1,
+    borderColor: '#DFE8F1',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+
+  notificationBellPressed: {
+    opacity: 0.68,
+    transform: [
+      {
+        scale: 0.96,
+      },
+    ],
+  },
+
+  notificationBellIcon: {
+    color: '#102C3C',
+    fontSize: 0,
+  },
+
+  notificationBellInner: {
+    width: 23,
+    height: 20,
+    borderWidth: 2,
+    borderColor: '#29485D',
+    borderTopLeftRadius: 12,
+    borderTopRightRadius: 12,
+    borderBottomLeftRadius: 5,
+    borderBottomRightRadius: 5,
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: 0,
+  },
+
+  notificationBellInnerText: {
+    color: '#29485D',
+    fontSize: 17,
+    lineHeight: 8,
+    fontWeight: '900',
+  },
+
+  notificationBadge: {
+    position: 'absolute',
+    right: -4,
+    top: -5,
+    minWidth: 19,
+    height: 19,
+    borderRadius: 10,
+    backgroundColor: '#D9364A',
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+  },
+
+  notificationBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+
   profileCircle: {
-    width: 61,
-    height: 61,
-    borderRadius: 21,
+    width: 57,
+    height: 57,
+    borderRadius: 20,
     backgroundColor: '#EAF3FF',
     borderWidth: 1,
     borderColor: '#D7E7FA',
@@ -2549,6 +3597,552 @@ const styles = StyleSheet.create({
     backgroundColor: '#22C55E',
     borderWidth: 3,
     borderColor: '#FFFFFF',
+  },
+
+
+  /* ===================================================
+     NOTIFICATION CENTER
+  =================================================== */
+
+  notificationCenterOverlay: {
+    flex: 1,
+    backgroundColor:
+      'rgba(5, 18, 30, 0.58)',
+    justifyContent: 'flex-end',
+  },
+
+  notificationCenterModal: {
+    backgroundColor: '#F8FAFC',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    maxHeight: '88%',
+    minHeight: '55%',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#E0E8EF',
+  },
+
+  notificationCenterHeader: {
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 14,
+    backgroundColor: '#FFFFFF',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E9EEF3',
+  },
+
+  notificationCenterHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+
+  notificationHeaderIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: '#EAF4FF',
+    borderWidth: 1,
+    borderColor: '#D9E9F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  notificationHeaderIconText: {
+    color: colors.blue,
+    fontSize: 28,
+    lineHeight: 20,
+    fontWeight: '900',
+  },
+
+  notificationCenterEyebrow: {
+    color: colors.blue,
+    fontSize: 7.5,
+    fontWeight: '900',
+    letterSpacing: 1.25,
+  },
+
+  notificationCenterTitle: {
+    color: colors.ink,
+    fontSize: 22,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+
+  notificationCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: '#F2F5F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 10,
+  },
+
+  notificationCloseText: {
+    color: '#526676',
+    fontSize: 25,
+    lineHeight: 25,
+    fontWeight: '500',
+  },
+
+  notificationSummary: {
+    marginHorizontal: 16,
+    marginTop: 14,
+    marginBottom: 5,
+    minHeight: 38,
+    borderRadius: 13,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E4EBF1',
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+  },
+
+  notificationSummaryDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 10,
+    backgroundColor: '#16A078',
+    marginRight: 8,
+  },
+
+  notificationSummaryText: {
+    color: '#526676',
+    fontSize: 10,
+    fontWeight: '700',
+  },
+
+  notificationListContent: {
+    paddingHorizontal: 16,
+    paddingTop: 9,
+    paddingBottom: 30,
+  },
+
+  notificationListItem: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#E3EAF0',
+    borderRadius: 19,
+    padding: 12,
+    marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+
+  notificationListItemUnread: {
+    borderColor: '#CFE4F8',
+    backgroundColor: '#FBFDFF',
+    shadowColor: '#0D3651',
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+
+  notificationListItemPressed: {
+    opacity: 0.7,
+  },
+
+  notificationListIcon: {
+    width: 43,
+    height: 43,
+    borderRadius: 14,
+    backgroundColor: '#F2F5F8',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+
+  notificationListIconUnread: {
+    backgroundColor: '#EAF4FF',
+  },
+
+  notificationListIconText: {
+    color: '#64748B',
+    fontSize: 18,
+    fontWeight: '900',
+  },
+
+  notificationListIconTextUnread: {
+    color: colors.blue,
+  },
+
+  notificationListBody: {
+    flex: 1,
+    minWidth: 0,
+  },
+
+  notificationListTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+
+  notificationListEyebrow: {
+    color: '#16815F',
+    fontSize: 7,
+    fontWeight: '900',
+    letterSpacing: 1,
+  },
+
+  unreadPill: {
+    backgroundColor: '#EAF4FF',
+    borderRadius: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+
+  unreadPillText: {
+    color: colors.blue,
+    fontSize: 6,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+  },
+
+  notificationListTitle: {
+    color: colors.ink,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+
+  notificationListMessage: {
+    color: colors.muted,
+    fontSize: 9.5,
+    lineHeight: 15,
+    marginTop: 3,
+  },
+
+  notificationListBottom: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 7,
+  },
+
+  notificationListDate: {
+    color: '#94A3B8',
+    fontSize: 7.5,
+  },
+
+  photoAttachedPill: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 7,
+    paddingHorizontal: 5,
+    paddingVertical: 3,
+  },
+
+  photoAttachedText: {
+    color: '#64748B',
+    fontSize: 6.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+
+  notificationListArrowBox: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: '#F5F8FB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 7,
+    alignSelf: 'center',
+  },
+
+  notificationListArrow: {
+    color: '#64748B',
+    fontSize: 14,
+    fontWeight: '900',
+  },
+
+  emptyNotificationState: {
+    alignItems: 'center',
+    paddingVertical: 55,
+    paddingHorizontal: 30,
+  },
+
+  emptyNotificationIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 21,
+    backgroundColor: '#EAF7F0',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 13,
+  },
+
+  emptyNotificationIconText: {
+    color: '#15966A',
+    fontSize: 25,
+    fontWeight: '900',
+  },
+
+  emptyNotificationTitle: {
+    color: colors.ink,
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
+  emptyNotificationText: {
+    color: colors.muted,
+    fontSize: 10.5,
+    lineHeight: 17,
+    textAlign: 'center',
+    maxWidth: 290,
+    marginTop: 6,
+  },
+
+
+  /* ===================================================
+     NOTIFICATION DETAIL
+  =================================================== */
+
+  notificationOverlay: {
+    flex: 1,
+    backgroundColor:
+      'rgba(5, 18, 30, 0.62)',
+    justifyContent: 'center',
+    padding: 24,
+  },
+
+  notificationModal: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 22,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: '#E2EAF0',
+    shadowColor: '#071B2B',
+    shadowOffset: {
+      width: 0,
+      height: 18,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 30,
+    elevation: 12,
+    maxHeight: '88%',
+  },
+
+  notificationTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+
+  notificationMark: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: '#E4F5EF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 11,
+  },
+
+  notificationMarkText: {
+    color: '#147A58',
+    fontSize: 22,
+    fontWeight: '900',
+  },
+
+  notificationHeaderTextArea: {
+    flex: 1,
+  },
+
+  notificationEyebrow: {
+    color: '#14805E',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
+
+  readStatusText: {
+    color: '#94A3B8',
+    fontSize: 6.5,
+    fontWeight: '900',
+    letterSpacing: 1,
+    marginTop: 3,
+  },
+
+  detailCloseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    backgroundColor: '#F3F6F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+
+  detailCloseText: {
+    color: '#64748B',
+    fontSize: 22,
+    lineHeight: 22,
+  },
+
+  notificationTitle: {
+    color: '#102637',
+    fontSize: 23,
+    lineHeight: 29,
+    fontWeight: '800',
+    marginBottom: 9,
+  },
+
+  notificationMessage: {
+    color: '#526676',
+    fontSize: 15,
+    lineHeight: 23,
+    marginBottom: 17,
+  },
+
+  notificationDetailDate: {
+    color: '#94A3B8',
+    fontSize: 8.5,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  notificationButton: {
+    minHeight: 50,
+    borderRadius: 12,
+    backgroundColor: '#102C3C',
+    paddingHorizontal: 17,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+
+  notificationButtonPressed: {
+    opacity: 0.84,
+  },
+
+  notificationButtonText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+
+  notificationButtonArrow: {
+    color: '#A9D8C5',
+    fontSize: 20,
+    fontWeight: '700',
+  },
+
+  notificationDeleteButton: {
+    alignSelf: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    marginTop: 3,
+  },
+
+  notificationDeleteText: {
+    color: '#A62F3D',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+
+
+  /* ===================================================
+     NOTIFICATION PHOTO
+  =================================================== */
+
+  notificationPhotoCard: {
+    width: '100%',
+    height: 190,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: '#F1F5F9',
+    marginBottom: 2,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    position: 'relative',
+  },
+
+  notificationPhoto: {
+    width: '100%',
+    height: '100%',
+  },
+
+  notificationPhotoOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    padding: 9,
+    backgroundColor:
+      'rgba(8, 24, 38, 0.40)',
+  },
+
+  notificationPhotoViewButton: {
+    alignSelf: 'flex-end',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor:
+      'rgba(255,255,255,0.94)',
+    borderRadius: 10,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+  },
+
+  notificationPhotoViewText: {
+    color: '#173246',
+    fontSize: 8,
+    fontWeight: '900',
+  },
+
+  notificationPhotoViewArrow: {
+    color: colors.blue,
+    fontSize: 12,
+    fontWeight: '900',
+    marginLeft: 4,
+  },
+
+  fullPhotoOverlay: {
+    flex: 1,
+    backgroundColor:
+      'rgba(2, 8, 15, 0.96)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  fullNotificationPhoto: {
+    width: '94%',
+    height: '82%',
+  },
+
+  fullPhotoClose: {
+    position: 'absolute',
+    top: 45,
+    right: 20,
+    zIndex: 10,
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor:
+      'rgba(255,255,255,0.12)',
+    borderWidth: 1,
+    borderColor:
+      'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+
+  fullPhotoCloseText: {
+    color: '#FFFFFF',
+    fontSize: 28,
+    lineHeight: 28,
+    fontWeight: '300',
   },
 
 

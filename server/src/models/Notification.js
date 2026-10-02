@@ -11,6 +11,7 @@ const NotificationSchema = new mongoose.Schema(
         'access_request',
         'access_approved',
         'access_rejected',
+        'admin_custom',
       ],
       required: true,
     },
@@ -25,23 +26,48 @@ const NotificationSchema = new mongoose.Schema(
     title: {
       type: String,
       required: true,
+      trim: true,
+      maxlength: 150,
     },
 
     message: {
       type: String,
       required: true,
+      trim: true,
+      maxlength: 5000,
     },
 
+    // Optional image/photo attached to the notification
+    photo: {
+      data: {
+        type: String,
+        default: null,
+      },
+
+      contentType: {
+        type: String,
+        default: null,
+      },
+
+      fileName: {
+        type: String,
+        default: null,
+      },
+    },
+
+    // Used for monthly payment notifications
     cycleKey: {
       type: String,
       default: null,
     },
 
+    // When doctor/admin has read the notification
     readAt: {
       type: Date,
       default: null,
     },
 
+    // Soft delete/dismiss notification
     dismissedAt: {
       type: Date,
       default: null,

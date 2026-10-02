@@ -53,17 +53,20 @@ const clean = (account) => {
   */
 
   if (Array.isArray(value.paymentHistory)) {
-    value.paymentHistory = value.paymentHistory.map((record) => ({
-      ...record,
-
-      paymentProof: record.paymentProof?.data
-        ? {
-            available: true,
-            contentType: record.paymentProof.contentType,
-            fileName: record.paymentProof.fileName,
-          }
-        : null,
-    }));
+    value.paymentHistory = value.paymentHistory.map(
+      (record) => ({
+        ...record,
+        paymentProof: record.paymentProof?.data
+          ? {
+              available: true,
+              contentType:
+                record.paymentProof.contentType,
+              fileName:
+                record.paymentProof.fileName,
+            }
+          : null,
+      })
+    );
   }
 
   /*
@@ -79,16 +82,18 @@ const clean = (account) => {
   if (value.pendingPayment) {
     value.pendingPayment = {
       ...value.pendingPayment,
-
-      paymentProof: value.pendingPayment.paymentProof?.data
-        ? {
-            available: true,
-            contentType:
-              value.pendingPayment.paymentProof.contentType,
-            fileName:
-              value.pendingPayment.paymentProof.fileName,
-          }
-        : null,
+      paymentProof:
+        value.pendingPayment.paymentProof?.data
+          ? {
+              available: true,
+              contentType:
+                value.pendingPayment.paymentProof
+                  .contentType,
+              fileName:
+                value.pendingPayment.paymentProof
+                  .fileName,
+            }
+          : null,
     };
   }
 
@@ -132,32 +137,18 @@ const addOneMonth = (date) => {
 const fields = (b) => ({
   name: b.name.trim(),
   email: b.email.trim().toLowerCase(),
-
   phone: b.phone || '',
-
-  qualification:
-    b.qualification || '',
-
-  specialization:
-    b.specialization || '',
-
+  qualification: b.qualification || '',
+  specialization: b.specialization || '',
   registrationNumber:
     b.registrationNumber || '',
-
-  clinicName:
-    b.clinicName || '',
-
+  clinicName: b.clinicName || '',
   clinicAddress:
     b.clinicAddress || '',
-
-  clinicLogo:
-    b.clinicLogo || '',
-
+  clinicLogo: b.clinicLogo || '',
   clinicBanner:
     b.clinicBanner || '',
-
-  signature:
-    b.signature || '',
+  signature: b.signature || '',
 });
 
 /*
@@ -210,7 +201,6 @@ router.post(
 
       await DoctorRequest.create({
         ...data,
-
         password: await bcrypt.hash(
           b.password,
           12
@@ -277,19 +267,14 @@ router.post(
 
       res.json({
         success: true,
-
         message:
           'Login successful',
-
         token: makeToken(
           account._id,
           type
         ),
-
         role: type,
-
         user: clean(account),
-
         doctor: admin
           ? null
           : clean(account),
@@ -380,10 +365,13 @@ router.post(
       if (
         incomingProof &&
         (
-          typeof incomingProof.data !== 'string' ||
-          incomingProof.data.length > 1800000 ||
+          typeof incomingProof.data !==
+            'string' ||
+          incomingProof.data.length >
+            1800000 ||
           !/^image\/(jpeg|png|webp)$/.test(
-            incomingProof.contentType || ''
+            incomingProof.contentType ||
+              ''
           )
         )
       ) {
@@ -404,13 +392,17 @@ router.post(
           createdAt: -1,
         });
 
-      const createdRequest = !request;
+      const createdRequest =
+        !request;
 
       if (!request) {
-        request = new AccessRequest({
-          doctorId: doctor._id,
-          status: 'pending',
-        });
+        request =
+          new AccessRequest({
+            doctorId:
+              doctor._id,
+            status:
+              'pending',
+          });
       }
 
       request.message =
@@ -423,15 +415,13 @@ router.post(
 
       if (incomingProof) {
         request.paymentProof = {
-          data: incomingProof.data,
-
+          data:
+            incomingProof.data,
           contentType:
             incomingProof.contentType,
-
           fileName:
             incomingProof.fileName ||
             'payment-proof',
-
           uploadedAt: now,
         };
       }
@@ -456,37 +446,36 @@ router.post(
         incomingProof
       ) {
         await Notification.create({
-          type: 'access_request',
-
+          type:
+            'access_request',
           doctorId:
             doctor._id,
-
-          title: incomingProof
-            ? 'Payment proof submitted'
-            : 'Access request received',
-
-          message: incomingProof
-            ? `${doctor.name} requested access and attached payment proof.`
-            : `${doctor.name} has requested Veda access.`,
+          title:
+            incomingProof
+              ? 'Payment proof submitted'
+              : 'Access request received',
+          message:
+            incomingProof
+              ? `${doctor.name} requested access and attached payment proof.`
+              : `${doctor.name} has requested Veda access.`,
         });
       }
 
       res.status(
-        createdRequest ? 201 : 200
+        createdRequest
+          ? 201
+          : 200
       ).json({
         success: true,
-
         alreadyPending:
           !createdRequest,
-
-        message: incomingProof
-          ? 'Access request and payment proof sent to admin.'
-          : createdRequest
-            ? 'Access request sent to admin.'
-            : 'Your access request is already pending with admin.',
-
+        message:
+          incomingProof
+            ? 'Access request and payment proof sent to admin.'
+            : createdRequest
+              ? 'Access request sent to admin.'
+              : 'Your access request is already pending with admin.',
         status: 'pending',
-
         requestId:
           request._id,
       });
@@ -538,8 +527,10 @@ router.post(
 
       let request =
         await AccessRequest.findOne({
-          doctorId: doctor._id,
-          status: 'pending',
+          doctorId:
+            doctor._id,
+          status:
+            'pending',
         });
 
       const createdRequest =
@@ -550,7 +541,6 @@ router.post(
           new AccessRequest({
             doctorId:
               doctor._id,
-
             status:
               'pending',
           });
@@ -581,17 +571,16 @@ router.post(
           await Notification.create({
             type:
               'access_request',
-
             doctorId:
               doctor._id,
-
             title:
               'Access request received',
-
             message:
               `${doctor.name} requested access from their signed-in workspace.`,
           });
-        } catch (notificationError) {
+        } catch (
+          notificationError
+        ) {
           console.error(
             'Access request notification error:',
             notificationError
@@ -600,18 +589,17 @@ router.post(
       }
 
       return res.status(
-        createdRequest ? 201 : 200
+        createdRequest
+          ? 201
+          : 200
       ).json({
         success: true,
-
         alreadyPending:
           !createdRequest,
-
         message:
           createdRequest
             ? 'Access request sent to the administrator.'
             : 'Your access request is already pending.',
-
         status:
           'pending',
       });
@@ -820,7 +808,8 @@ router.post(
 
       if (
         !paymentProof ||
-        typeof paymentProof !== 'object'
+        typeof paymentProof !==
+          'object'
       ) {
         return res.status(400).json({
           success: false,
@@ -892,34 +881,23 @@ router.post(
 
       doctor.pendingPayment = {
         amount,
-
         monthsPaid,
-
         transactionId,
-
         note,
-
         submittedAt:
           now,
-
         status:
           'pending',
-
         reviewedAt:
           null,
-
         reviewedBy:
           null,
-
         adminNote:
           '',
-
         paymentProof: {
           data:
             paymentProof.data,
-
           contentType,
-
           fileName:
             paymentProof.fileName ||
             'payment-proof.jpg',
@@ -939,56 +917,40 @@ router.post(
       |
       | Those are changed only after admin verification.
       |
+      |--------------------------------------------------------------------------
       */
 
       await doctor.save();
 
-      /*
-      |--------------------------------------------------------------------------
-      | Notify admin
-      |--------------------------------------------------------------------------
-      |
-      | Your current Notification system is doctor-oriented.
-      | We avoid assuming an admin notification schema.
-      | Admin dashboard can directly read pendingPayment from Doctor.
-      |
-      |--------------------------------------------------------------------------
-      */
-
       return res.status(201).json({
         success: true,
-
         message:
           'Payment submitted successfully. Please wait for administrator verification.',
-
         pendingPayment: {
           amount:
             doctor.pendingPayment.amount,
-
           monthsPaid:
-            doctor.pendingPayment.monthsPaid,
-
+            doctor.pendingPayment
+              .monthsPaid,
           transactionId:
-            doctor.pendingPayment.transactionId,
-
+            doctor.pendingPayment
+              .transactionId,
           note:
-            doctor.pendingPayment.note,
-
+            doctor.pendingPayment
+              .note,
           submittedAt:
-            doctor.pendingPayment.submittedAt,
-
+            doctor.pendingPayment
+              .submittedAt,
           status:
-            doctor.pendingPayment.status,
-
+            doctor.pendingPayment
+              .status,
           paymentProof: {
             available:
               true,
-
             contentType:
               doctor.pendingPayment
                 .paymentProof
                 .contentType,
-
             fileName:
               doctor.pendingPayment
                 .paymentProof
@@ -1010,6 +972,17 @@ router.post(
 /*
 |--------------------------------------------------------------------------
 | DOCTOR NOTIFICATIONS
+|--------------------------------------------------------------------------
+|
+| Returns ALL active notifications:
+| - unread
+| - read
+|
+| Dismissed notifications are excluded.
+|
+| This allows the frontend notification center to show
+| notification history instead of only the latest unread item.
+|
 |--------------------------------------------------------------------------
 */
 
@@ -1042,22 +1015,86 @@ router.get(
           doctorId:
             req.user._id,
 
-          readAt:
-            null,
-
+          // Deleted/dismissed notifications
+          // should not appear for the doctor.
           dismissedAt:
             null,
         })
           .sort({
             createdAt: -1,
           })
-          .limit(20);
+          .limit(50);
+
+      const unread =
+        notifications.filter(
+          (notification) =>
+            !notification.readAt
+        ).length;
 
       res.json({
         success: true,
 
         data:
           notifications,
+
+        unread,
+
+        total:
+          notifications.length,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+/*
+|--------------------------------------------------------------------------
+| MARK ALL NOTIFICATIONS AS READ
+|--------------------------------------------------------------------------
+*/
+
+router.patch(
+  '/notifications/read-all',
+  auth,
+  async (req, res, next) => {
+    try {
+      if (req.admin) {
+        return res.status(403).json({
+          success: false,
+          message:
+            'Doctor notifications are not available to admins.',
+        });
+      }
+
+      const result =
+        await Notification.updateMany(
+          {
+            doctorId:
+              req.user._id,
+
+            readAt:
+              null,
+
+            dismissedAt:
+              null,
+          },
+          {
+            $set: {
+              readAt:
+                new Date(),
+            },
+          }
+        );
+
+      res.json({
+        success: true,
+
+        modifiedCount:
+          result.modifiedCount || 0,
+
+        message:
+          'All notifications marked as read.',
       });
     } catch (error) {
       next(error);
@@ -1093,12 +1130,10 @@ router.patch(
             doctorId:
               req.user._id,
           },
-
           {
             readAt:
               new Date(),
           },
-
           {
             new: true,
           }
@@ -1114,7 +1149,6 @@ router.patch(
 
       res.json({
         success: true,
-
         data:
           notification,
       });
@@ -1127,6 +1161,12 @@ router.patch(
 /*
 |--------------------------------------------------------------------------
 | DELETE / DISMISS NOTIFICATION
+|--------------------------------------------------------------------------
+|
+| Soft delete:
+| We keep the notification in MongoDB but hide it from
+| the doctor's active notification list.
+|
 |--------------------------------------------------------------------------
 */
 
@@ -1155,12 +1195,10 @@ router.delete(
             dismissedAt:
               null,
           },
-
           {
             dismissedAt:
               new Date(),
           },
-
           {
             new: true,
           }
@@ -1176,7 +1214,6 @@ router.delete(
 
       res.json({
         success: true,
-
         message:
           'Notification deleted.',
       });

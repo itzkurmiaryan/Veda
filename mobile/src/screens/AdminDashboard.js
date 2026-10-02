@@ -1,6 +1,7 @@
 import React, {
   useCallback,
   useEffect,
+  useMemo,
   useState,
 } from 'react';
 
@@ -14,9 +15,10 @@ import * as ImagePicker from 'expo-image-picker';
 import {
   Image,
   Modal,
-  Platform,
   Pressable,
+  ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 
@@ -37,15 +39,10 @@ import {
   DoctorDirectoryRow,
   EmptyState,
   KpiCard,
-  MetaBox,
   NotificationRow,
   PaymentEntryModal,
   PaymentHistoryModal,
   RequestCard,
-  calculateLocalDays,
-  formatLocalDate,
-  isDateDue,
-  isPaymentRequestCoolingDown,
 } from './AdminDashboardComponents';
 
 import styles from './AdminDashboardStyles';
@@ -63,59 +60,37 @@ export default function AdminDashboard({
     actionLoading,
   } = useAuth();
 
-  const [requests, setRequests] =
-    useState([]);
+  const [requests, setRequests] = useState([]);
+  const [doctors, setDoctors] = useState([]);
+  const [overview, setOverview] = useState(null);
+  const [notifications, setNotifications] = useState([]);
+  const [accessRequests, setAccessRequests] = useState([]);
 
-  const [doctors, setDoctors] =
-    useState([]);
-
-  const [overview, setOverview] =
+  const [selectedDoctorGroup, setSelectedDoctorGroup] =
     useState(null);
 
-  const [notifications, setNotifications] =
-    useState([]);
-
-  const [accessRequests, setAccessRequests] =
-    useState([]);
-
-  const [
-    selectedDoctorGroup,
-    setSelectedDoctorGroup,
-  ] = useState(null);
-
-  const [loading, setLoading] =
-    useState(true);
+  const [loading, setLoading] = useState(true);
 
   const [deleteDoctorId, setDeleteDoctorId] =
     useState(null);
 
-  const [
-    deletingDoctorId,
-    setDeletingDoctorId,
-  ] = useState(null);
+  const [deletingDoctorId, setDeletingDoctorId] =
+    useState(null);
 
   const [deleteError, setDeleteError] =
     useState('');
 
-  const [
-    paymentProofPreview,
-    setPaymentProofPreview,
-  ] = useState(null);
+  const [paymentProofPreview, setPaymentProofPreview] =
+    useState(null);
 
-  const [
-    paymentProofLoading,
-    setPaymentProofLoading,
-  ] = useState(false);
+  const [paymentProofLoading, setPaymentProofLoading] =
+    useState(false);
 
-  const [
-    paymentEntryDoctor,
-    setPaymentEntryDoctor,
-  ] = useState(null);
+  const [paymentEntryDoctor, setPaymentEntryDoctor] =
+    useState(null);
 
-  const [
-    paymentHistoryDoctor,
-    setPaymentHistoryDoctor,
-  ] = useState(null);
+  const [paymentHistoryDoctor, setPaymentHistoryDoctor] =
+    useState(null);
 
   const [paymentAmount, setPaymentAmount] =
     useState('');
@@ -126,18 +101,58 @@ export default function AdminDashboard({
   const [paymentNote, setPaymentNote] =
     useState('');
 
-  const [
-    paymentTransactionId,
-    setPaymentTransactionId,
-  ] = useState('');
+  const [paymentTransactionId, setPaymentTransactionId] =
+    useState('');
 
-  const [
-    paymentMonthsPaid,
-    setPaymentMonthsPaid,
-  ] = useState('1');
+  const [paymentMonthsPaid, setPaymentMonthsPaid] =
+    useState('1');
 
   const [paymentProof, setPaymentProof] =
     useState(null);
+
+  /* ================================================================
+     CUSTOM NOTIFICATION STATE
+  ================================================================= */
+
+  const [
+    notificationComposerVisible,
+    setNotificationComposerVisible,
+  ] = useState(false);
+
+  const [
+    notificationTitle,
+    setNotificationTitle,
+  ] = useState('');
+
+  const [
+    notificationMessage,
+    setNotificationMessage,
+  ] = useState('');
+
+  const [
+    notificationPhoto,
+    setNotificationPhoto,
+  ] = useState(null);
+
+  const [
+    notificationRecipientMode,
+    setNotificationRecipientMode,
+  ] = useState('all');
+
+  const [
+    selectedNotificationDoctors,
+    setSelectedNotificationDoctors,
+  ] = useState([]);
+
+  const [
+    notificationSending,
+    setNotificationSending,
+  ] = useState(false);
+
+  const [
+    notificationDoctorSearch,
+    setNotificationDoctorSearch,
+  ] = useState('');
 
   /* ================================================================
      VEDA ALERT
@@ -190,23 +205,6 @@ export default function AdminDashboard({
     },
     []
   );
-
-  /* ================================================================
-     DATE REFRESH
-  ================================================================= */
-
-  const [todayKey, setTodayKey] =
-    useState(() => {
-      const now = new Date();
-
-      return [
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate(),
-        now.getHours(),
-        now.getMinutes(),
-      ].join('-');
-    });
 
   /* ================================================================
      HELPERS
@@ -266,7 +264,7 @@ export default function AdminDashboard({
   };
 
   /* ================================================================
-     PAYMENT DATE HELPERS
+     PAYMENT HELPERS
   ================================================================= */
 
   const getPaymentEndDate = (
@@ -467,15 +465,9 @@ export default function AdminDashboard({
     return 'unpaid';
   };
 
-  const getPaymentStatus = (
-    doctorItem
+  const formatDate = (
+    value
   ) => {
-    return getEffectivePaymentStatus(
-      doctorItem
-    );
-  };
-
-  const formatDate = (value) => {
     if (!value) {
       return 'Not available';
     }
@@ -497,53 +489,6 @@ export default function AdminDashboard({
         month: 'short',
         year: 'numeric',
       }
-    );
-  };
-
-  const calculateDaysUsed = (
-    doctorItem
-  ) => {
-    if (
-      typeof doctorItem?.daysUsed ===
-      'number'
-    ) {
-      return doctorItem.daysUsed;
-    }
-
-    const start =
-      doctorItem?.accessStartDate ||
-      doctorItem?.registrationDate ||
-      doctorItem?.createdAt;
-
-    if (!start) {
-      return 0;
-    }
-
-    const startDate = new Date(
-      start
-    );
-
-    if (
-      Number.isNaN(
-        startDate.getTime()
-      )
-    ) {
-      return 0;
-    }
-
-    const difference =
-      new Date().getTime() -
-      startDate.getTime();
-
-    return Math.max(
-      0,
-      Math.floor(
-        difference /
-          (1000 *
-            60 *
-            60 *
-            24)
-      )
     );
   };
 
@@ -637,33 +582,7 @@ export default function AdminDashboard({
     );
 
   /* ================================================================
-     AUTOMATIC DATE REFRESH
-  ================================================================= */
-
-  useEffect(() => {
-    const interval =
-      setInterval(() => {
-        const now = new Date();
-
-        setTodayKey(
-          [
-            now.getFullYear(),
-            now.getMonth(),
-            now.getDate(),
-            now.getHours(),
-            now.getMinutes(),
-          ].join('-')
-        );
-      }, 60 * 1000);
-
-    return () =>
-      clearInterval(interval);
-  }, []);
-
-  void todayKey;
-
-  /* ================================================================
-     LOAD ADMIN DASHBOARD
+     LOAD DASHBOARD
   ================================================================= */
 
   const load = useCallback(
@@ -676,15 +595,19 @@ export default function AdminDashboard({
             api.get(
               '/admin/requests'
             ),
+
             api.get(
               '/admin/doctors'
             ),
+
             api.get(
               '/analytics/overview'
             ),
+
             api.get(
               '/admin/notifications'
             ),
+
             api.get(
               '/admin/access-requests'
             ),
@@ -708,11 +631,6 @@ export default function AdminDashboard({
               []
             )
           );
-        } else {
-          console.error(
-            'REQUESTS ERROR:',
-            requestsResult.reason
-          );
         }
 
         if (
@@ -731,11 +649,6 @@ export default function AdminDashboard({
             )
               ? serverDoctors
               : []
-          );
-        } else {
-          console.error(
-            'DOCTORS ERROR:',
-            doctorsResult.reason
           );
         }
 
@@ -770,11 +683,6 @@ export default function AdminDashboard({
               ? serverNotifications
               : []
           );
-        } else {
-          console.error(
-            'NOTIFICATIONS ERROR:',
-            notificationsResult.reason
-          );
         }
 
         if (
@@ -793,11 +701,6 @@ export default function AdminDashboard({
             )
               ? serverAccessRequests
               : []
-          );
-        } else {
-          console.error(
-            'ACCESS REQUESTS ERROR:',
-            accessRequestsResult.reason
           );
         }
       } catch (error) {
@@ -832,58 +735,503 @@ export default function AdminDashboard({
     useCallback(() => {
       let mounted = true;
 
-      const refreshAccessRequests =
-        async () => {
-          try {
-            const response =
-              await api.get(
-                '/admin/access-requests'
-              );
+      const refresh = async () => {
+        try {
+          const [
+            notificationsResponse,
+            accessResponse,
+          ] = await Promise.all([
+            api.get(
+              '/admin/notifications'
+            ),
+            api.get(
+              '/admin/access-requests'
+            ),
+          ]);
 
-            if (mounted) {
-              const requests =
-                response?.data?.data;
-
-              setAccessRequests(
-                Array.isArray(
-                  requests
-                )
-                  ? requests
-                  : []
-              );
-            }
-          } catch (error) {
-            if (mounted) {
-              console.error(
-                'ACCESS REQUESTS REFRESH ERROR:',
-                error?.response
-                  ?.data ||
-                  error?.message ||
-                  error
-              );
-            }
+          if (!mounted) {
+            return;
           }
-        };
 
-      refreshAccessRequests();
+          const notificationData =
+            notificationsResponse
+              ?.data?.data;
+
+          const accessData =
+            accessResponse
+              ?.data?.data;
+
+          setNotifications(
+            Array.isArray(
+              notificationData
+            )
+              ? notificationData
+              : []
+          );
+
+          setAccessRequests(
+            Array.isArray(
+              accessData
+            )
+              ? accessData
+              : []
+          );
+        } catch (error) {
+          if (mounted) {
+            console.error(
+              'ADMIN REFRESH ERROR:',
+              error?.response
+                ?.data ||
+                error?.message ||
+                error
+            );
+          }
+        }
+      };
+
+      refresh();
 
       const interval =
         setInterval(
-          refreshAccessRequests,
+          refresh,
           30 * 1000
         );
 
       return () => {
         mounted = false;
-        clearInterval(
-          interval
-        );
+        clearInterval(interval);
       };
     }, [])
   );
 
   /* ================================================================
-     APPROVE / REJECT REGISTRATION
+     CUSTOM NOTIFICATION HELPERS
+  ================================================================= */
+
+  const filteredNotificationDoctors =
+    useMemo(() => {
+      const query =
+        notificationDoctorSearch
+          .trim()
+          .toLowerCase();
+
+      if (!query) {
+        return displayDoctors;
+      }
+
+      return displayDoctors.filter(
+        (item) =>
+          item.name
+            ?.toLowerCase()
+            .includes(query) ||
+          item.email
+            ?.toLowerCase()
+            .includes(query)
+      );
+    }, [
+      displayDoctors,
+      notificationDoctorSearch,
+    ]);
+
+  const selectedDoctorsCount =
+    selectedNotificationDoctors.length;
+
+  const notificationRecipientText =
+    notificationRecipientMode === 'all'
+      ? `All ${displayDoctors.length} doctors`
+      : notificationRecipientMode ===
+          'single'
+        ? selectedDoctorsCount === 1
+          ? displayDoctors.find(
+              (item) =>
+                String(item._id) ===
+                String(
+                  selectedNotificationDoctors[0]
+                )
+            )?.name ||
+            'Select doctor'
+          : 'Select one doctor'
+        : `${selectedDoctorsCount} doctor(s) selected`;
+
+  const resetNotificationComposer =
+    () => {
+      setNotificationTitle('');
+      setNotificationMessage('');
+      setNotificationPhoto(null);
+      setNotificationRecipientMode(
+        'all'
+      );
+      setSelectedNotificationDoctors(
+        []
+      );
+      setNotificationDoctorSearch('');
+    };
+
+  const closeNotificationComposer =
+    () => {
+      if (notificationSending) {
+        return;
+      }
+
+      setNotificationComposerVisible(
+        false
+      );
+
+      resetNotificationComposer();
+    };
+
+  const toggleNotificationDoctor =
+    (doctorId) => {
+      const id = String(
+        doctorId
+      );
+
+      if (
+        notificationRecipientMode ===
+        'single'
+      ) {
+        setSelectedNotificationDoctors(
+          [id]
+        );
+
+        return;
+      }
+
+      setSelectedNotificationDoctors(
+        (current) => {
+          const exists =
+            current.some(
+              (item) =>
+                String(item) === id
+            );
+
+          if (exists) {
+            return current.filter(
+              (item) =>
+                String(item) !== id
+            );
+          }
+
+          return [
+            ...current,
+            id,
+          ];
+        }
+      );
+    };
+
+  const selectAllNotificationDoctors =
+    () => {
+      setSelectedNotificationDoctors(
+        displayDoctors.map(
+          (item) =>
+            String(item._id)
+        )
+      );
+    };
+
+  const clearNotificationDoctors =
+    () => {
+      setSelectedNotificationDoctors(
+        []
+      );
+    };
+
+  const chooseNotificationPhoto =
+    async () => {
+      try {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+        if (!permission.granted) {
+          showVedaAlert({
+            type: 'warning',
+            title:
+              'Photo access needed',
+            message:
+              'Allow photo access to attach a photo to the notification.',
+            primaryText: 'Okay',
+          });
+
+          return;
+        }
+
+        const result =
+          await ImagePicker.launchImageLibraryAsync(
+            {
+              mediaTypes: ['images'],
+              allowsEditing: false,
+              quality: 0.5,
+            }
+          );
+
+        if (
+          result.canceled
+        ) {
+          return;
+        }
+
+        const image =
+          result.assets?.[0];
+
+        if (!image?.uri) {
+          throw new Error(
+            'Please select a valid image.'
+          );
+        }
+
+        const resizeAction =
+          image.width >=
+          image.height
+            ? {
+                resize: {
+                  width: 1000,
+                },
+              }
+            : {
+                resize: {
+                  height: 1000,
+                },
+              };
+
+        const compressed =
+          await ImageManipulator.manipulateAsync(
+            image.uri,
+            [resizeAction],
+            {
+              compress: 0.45,
+              format:
+                ImageManipulator
+                  .SaveFormat
+                  .JPEG,
+              base64: true,
+            }
+          );
+
+        if (
+          !compressed.base64
+        ) {
+          throw new Error(
+            'Unable to process the selected image.'
+          );
+        }
+
+        if (
+          compressed.base64.length >
+          1400000
+        ) {
+          throw new Error(
+            'Image is too large. Please choose a smaller image.'
+          );
+        }
+
+        setNotificationPhoto({
+          data:
+            compressed.base64,
+          contentType:
+            'image/jpeg',
+          fileName:
+            image.fileName ||
+            'notification.jpg',
+          uri:
+            compressed.uri ||
+            image.uri,
+        });
+      } catch (error) {
+        showVedaAlert({
+          type: 'error',
+          title:
+            'Unable to attach image',
+          message:
+            error.message ||
+            'Unable to select the notification image.',
+          primaryText: 'Close',
+        });
+      }
+    };
+
+  const sendCustomNotification =
+    async () => {
+      if (notificationSending) {
+        return;
+      }
+
+      const title =
+        notificationTitle.trim();
+
+      const message =
+        notificationMessage.trim();
+
+      if (!title) {
+        showVedaAlert({
+          type: 'warning',
+          title:
+            'Notification title required',
+          message:
+            'Please enter a title for the notification.',
+          primaryText: 'Okay',
+        });
+
+        return;
+      }
+
+      if (!message) {
+        showVedaAlert({
+          type: 'warning',
+          title:
+            'Notification message required',
+          message:
+            'Please enter a message for the doctors.',
+          primaryText: 'Okay',
+        });
+
+        return;
+      }
+
+      if (
+        displayDoctors.length === 0
+      ) {
+        showVedaAlert({
+          type: 'warning',
+          title:
+            'No doctors available',
+          message:
+            'There are no registered doctors available to receive this notification.',
+          primaryText: 'Okay',
+        });
+
+        return;
+      }
+
+      if (
+        notificationRecipientMode !==
+          'all' &&
+        selectedNotificationDoctors.length ===
+          0
+      ) {
+        showVedaAlert({
+          type: 'warning',
+          title:
+            'Select recipient',
+          message:
+            'Please select at least one doctor before sending the notification.',
+          primaryText: 'Okay',
+        });
+
+        return;
+      }
+
+      if (
+        notificationRecipientMode ===
+          'single' &&
+        selectedNotificationDoctors.length !==
+          1
+      ) {
+        showVedaAlert({
+          type: 'warning',
+          title:
+            'Select one doctor',
+          message:
+            'Single doctor mode requires exactly one doctor.',
+          primaryText: 'Okay',
+        });
+
+        return;
+      }
+
+      try {
+        setNotificationSending(
+          true
+        );
+
+        startAction(
+          'Sending notification...',
+          'Delivering the notification securely to the selected doctors.'
+        );
+
+        const payload = {
+          title,
+          message,
+
+          recipientMode:
+            notificationRecipientMode,
+
+          doctorIds:
+            notificationRecipientMode ===
+            'all'
+              ? displayDoctors.map(
+                  (item) =>
+                    item._id
+                )
+              : selectedNotificationDoctors,
+
+          photo:
+            notificationPhoto
+              ? {
+                  data:
+                    notificationPhoto.data,
+                  contentType:
+                    notificationPhoto.contentType,
+                  fileName:
+                    notificationPhoto.fileName,
+                }
+              : null,
+        };
+
+        const response =
+          await api.post(
+            '/admin/notifications/send',
+            payload
+          );
+
+        const created =
+          response?.data?.data;
+
+        setNotificationComposerVisible(
+          false
+        );
+
+        resetNotificationComposer();
+
+        await load();
+
+        showVedaAlert({
+          type: 'success',
+          title:
+            'Notification sent',
+          message:
+            created?.count
+              ? `${created.count} doctor(s) have received the notification.`
+              : 'The notification has been sent successfully to the selected doctors.',
+          primaryText: 'Done',
+        });
+      } catch (error) {
+        console.error(
+          'CUSTOM NOTIFICATION ERROR:',
+          error
+        );
+
+        showVedaAlert({
+          type: 'error',
+          title:
+            'Notification failed',
+          message:
+            error.response?.data
+              ?.message ||
+            error.message ||
+            'Unable to send notification.',
+          primaryText: 'Close',
+        });
+      } finally {
+        setNotificationSending(
+          false
+        );
+        stopAction();
+      }
+    };
+
+  /* ================================================================
+     REGISTRATION APPROVAL
   ================================================================= */
 
   const act = async (
@@ -932,14 +1280,17 @@ export default function AdminDashboard({
           type === 'approve'
             ? 'success'
             : 'info',
+
         title:
           type === 'approve'
             ? 'Doctor approved'
             : 'Request rejected',
+
         message:
           type === 'approve'
             ? 'The doctor registration has been approved and the workspace is now available.'
             : 'The doctor registration request has been rejected successfully.',
+
         primaryText: 'Done',
       });
     } catch (error) {
@@ -959,7 +1310,7 @@ export default function AdminDashboard({
   };
 
   /* ================================================================
-     REMOVE / RESTORE ACCESS
+     ACCESS
   ================================================================= */
 
   const access = async (
@@ -1015,27 +1366,26 @@ export default function AdminDashboard({
           )
       );
 
-      startAction(
-        'Refreshing doctor directory...',
-        'Updating the latest access status.'
-      );
-
       await load();
 
       showVedaAlert({
         type: 'success',
+
         title: removing
           ? 'Access removed'
           : 'Access restored',
+
         message: removing
           ? `${doctorItem.name || 'Doctor'} no longer has access to the Veda workspace. Clinical records remain preserved.`
           : `${doctorItem.name || 'Doctor'} can now access the Veda workspace again.`,
+
         primaryText: 'Done',
       });
     } catch (error) {
       showVedaAlert({
         type: 'error',
-        title: 'Access update failed',
+        title:
+          'Access update failed',
         message:
           error.response?.data
             ?.message ||
@@ -1053,7 +1403,9 @@ export default function AdminDashboard({
   ================================================================= */
 
   const requestPayment =
-    async (doctorItem) => {
+    async (
+      doctorItem
+    ) => {
       if (
         actionLoading ||
         !doctorItem?._id
@@ -1090,18 +1442,10 @@ export default function AdminDashboard({
 
                 return {
                   ...item,
-
                   ...(updatedDoctor ||
                     {}),
-
-                  paymentStatus:
-                    updatedDoctor?.paymentStatus ||
-                    item.paymentStatus ||
-                    'pending',
-
                   paymentReminderRequested:
                     true,
-
                   paymentReminderAt:
                     updatedDoctor?.paymentReminderAt ||
                     new Date().toISOString(),
@@ -1110,25 +1454,16 @@ export default function AdminDashboard({
             )
         );
 
-        startAction(
-          'Payment reminder sent...',
-          'Refreshing the latest payment status.'
-        );
-
         await load();
 
         showVedaAlert({
           type: 'success',
-          title: 'Payment reminder sent',
+          title:
+            'Payment reminder sent',
           message: `${doctorItem.name || 'Doctor'} has been notified that a payment is due.`,
           primaryText: 'Done',
         });
       } catch (error) {
-        console.error(
-          'PAYMENT REQUEST ERROR:',
-          error
-        );
-
         showVedaAlert({
           type: 'error',
           title:
@@ -1136,8 +1471,8 @@ export default function AdminDashboard({
           message:
             error.response?.data
               ?.message ||
-            error.message ||
-            'Unable to send the payment request.',
+          error.message ||
+          'Unable to send the payment request.',
           primaryText: 'Close',
         });
       } finally {
@@ -1146,7 +1481,7 @@ export default function AdminDashboard({
     };
 
   /* ================================================================
-     PAYMENT UPDATE HELPERS
+     PAYMENT HELPERS
   ================================================================= */
 
   const updateAccessRequestPayment =
@@ -1189,14 +1524,6 @@ export default function AdminDashboard({
                   paymentStatus:
                     updatedDoctor?.paymentStatus ||
                     'paid',
-
-                  paymentReminderRequested:
-                    updatedDoctor?.paymentReminderRequested ===
-                    true,
-
-                  paymentReminderAt:
-                    updatedDoctor?.paymentReminderAt ||
-                    null,
                 },
               };
             }
@@ -1220,6 +1547,7 @@ export default function AdminDashboard({
     setPaymentTransactionId('');
     setPaymentMonthsPaid('1');
     setPaymentProof(null);
+
     setPaymentEntryDoctor(
       doctorItem
     );
@@ -1241,7 +1569,7 @@ export default function AdminDashboard({
             title:
               'Photo access needed',
             message:
-              'Allow photo access to attach a payment screenshot to the payment record.',
+              'Allow photo access to attach a payment screenshot.',
             primaryText: 'Okay',
           });
 
@@ -1257,7 +1585,9 @@ export default function AdminDashboard({
             }
           );
 
-        if (result.canceled) {
+        if (
+          result.canceled
+        ) {
           return;
         }
 
@@ -1333,7 +1663,7 @@ export default function AdminDashboard({
     };
 
   /* ================================================================
-     MARK PAYMENT PAID
+     PAYMENT PAID
   ================================================================= */
 
   const submitPaymentPaid =
@@ -1342,7 +1672,9 @@ export default function AdminDashboard({
         paymentEntryDoctor;
 
       const amount =
-        Number(paymentAmount);
+        Number(
+          paymentAmount
+        );
 
       const monthsPaid =
         Number(
@@ -1351,7 +1683,9 @@ export default function AdminDashboard({
 
       if (
         !doctorItem?._id ||
-        !Number.isFinite(amount) ||
+        !Number.isFinite(
+          amount
+        ) ||
         amount <= 0 ||
         !Number.isInteger(
           monthsPaid
@@ -1435,7 +1769,6 @@ export default function AdminDashboard({
                       ...item,
                       ...updatedDoctor,
                       paymentStatus:
-                        updatedDoctor?.paymentStatus ||
                         'paid',
                       paymentReminderRequested:
                         false,
@@ -1457,16 +1790,12 @@ export default function AdminDashboard({
 
         showVedaAlert({
           type: 'success',
-          title: 'Payment recorded',
+          title:
+            'Payment recorded',
           message: `${doctorItem.name || 'Doctor'}'s payment of ₹${amount.toLocaleString('en-IN')} for ${monthsPaid} month(s) has been recorded and verified successfully.`,
           primaryText: 'Done',
         });
       } catch (error) {
-        console.error(
-          'MARK PAYMENT PAID ERROR:',
-          error
-        );
-
         showVedaAlert({
           type: 'error',
           title:
@@ -1545,8 +1874,9 @@ export default function AdminDashboard({
 
         showVedaAlert({
           type: 'warning',
-          title: 'Payment remains unpaid',
-          message: `${doctorItem.name || 'Doctor'} remains marked as unpaid. The payment record has not been verified.`,
+          title:
+            'Payment remains unpaid',
+          message: `${doctorItem.name || 'Doctor'} remains marked as unpaid.`,
           primaryText: 'Okay',
         });
       } catch (error) {
@@ -1567,7 +1897,7 @@ export default function AdminDashboard({
     };
 
   /* ================================================================
-     ACCESS REQUEST APPROVE / REJECT
+     ACCESS REQUEST
   ================================================================= */
 
   const handleAccessRequest =
@@ -1599,23 +1929,21 @@ export default function AdminDashboard({
           `/admin/access-requests/${request._id}/${action}`
         );
 
-        startAction(
-          'Refreshing access requests...',
-          'Updating the latest administrator information.'
-        );
-
         await load();
 
         showVedaAlert({
           type: isApprove
             ? 'success'
             : 'info',
+
           title: isApprove
             ? 'Access request approved'
             : 'Access request rejected',
+
           message: isApprove
             ? 'The doctor can now continue using the Veda workspace.'
             : 'The doctor access request has been rejected successfully.',
+
           primaryText: 'Done',
         });
       } catch (error) {
@@ -1640,7 +1968,9 @@ export default function AdminDashboard({
   ================================================================= */
 
   const viewPaymentProof =
-    async (request) => {
+    async (
+      request
+    ) => {
       if (!request?._id) {
         return;
       }
@@ -1756,70 +2086,74 @@ export default function AdminDashboard({
      DELETE NOTIFICATION
   ================================================================= */
 
-  const deleteNotification = (
-    notification
-  ) => {
-    if (!notification?._id) {
-      return;
-    }
+  const deleteNotification =
+    (
+      notification
+    ) => {
+      if (!notification?._id) {
+        return;
+      }
 
-    const confirmDelete =
-      async () => {
-        try {
-          await api.delete(
-            `/admin/notifications/${notification._id}`
-          );
+      const confirmDelete =
+        async () => {
+          try {
+            await api.delete(
+              `/admin/notifications/${notification._id}`
+            );
 
-          setNotifications(
-            (current) =>
-              current.filter(
-                (item) =>
-                  item._id !==
-                  notification._id
-              )
-          );
+            setNotifications(
+              (current) =>
+                current.filter(
+                  (item) =>
+                    item._id !==
+                    notification._id
+                )
+            );
 
-          showVedaAlert({
-            type: 'success',
-            title:
-              'Notification deleted',
-            message:
-              'The notification has been removed from the admin dashboard.',
-            primaryText: 'Done',
-          });
-        } catch (error) {
-          showVedaAlert({
-            type: 'error',
-            title: 'Delete failed',
-            message:
-              error.response?.data
-                ?.message ||
-              error.message ||
-              'Unable to delete notification.',
-            primaryText: 'Close',
-          });
-        }
-      };
+            showVedaAlert({
+              type: 'success',
+              title:
+                'Notification deleted',
+              message:
+                'The notification has been removed from the admin dashboard.',
+              primaryText: 'Done',
+            });
+          } catch (error) {
+            showVedaAlert({
+              type: 'error',
+              title:
+                'Delete failed',
+              message:
+                error.response?.data
+                  ?.message ||
+                error.message ||
+                'Unable to delete notification.',
+              primaryText: 'Close',
+            });
+          }
+        };
 
-    showVedaAlert({
-      type: 'danger',
-      title:
-        'Delete notification?',
-      message:
-        'This notification will be permanently removed from the admin dashboard.',
-      primaryText: 'Delete',
-      secondaryText: 'Cancel',
-      onPrimary:
-        confirmDelete,
-    });
-  };
+      showVedaAlert({
+        type: 'danger',
+        title:
+          'Delete notification?',
+        message:
+          'This notification will be permanently removed from the admin dashboard.',
+        primaryText: 'Delete',
+        secondaryText: 'Cancel',
+        onPrimary:
+          confirmDelete,
+      });
+    };
 
   /* ================================================================
      DELETE DOCTOR
   ================================================================= */
 
   const openDeleteConfirmation =
-    (doctorItem) => {
+    (
+      doctorItem
+    ) => {
       if (actionLoading) {
         return;
       }
@@ -1832,10 +2166,13 @@ export default function AdminDashboard({
 
       showVedaAlert({
         type: 'danger',
-        title: 'Delete doctor?',
+        title:
+          'Delete doctor?',
         message: `${doctorItem.name || 'This doctor'} and related account records will be permanently removed. This action cannot be undone.`,
-        primaryText: 'Delete doctor',
-        secondaryText: 'Cancel',
+        primaryText:
+          'Delete doctor',
+        secondaryText:
+          'Cancel',
         onPrimary: () =>
           deleteDoctor(
             doctorItem
@@ -1843,17 +2180,10 @@ export default function AdminDashboard({
       });
     };
 
-  const cancelDelete = () => {
-    if (deletingDoctorId) {
-      return;
-    }
-
-    setDeleteDoctorId(null);
-    setDeleteError('');
-  };
-
   const deleteDoctor =
-    async (doctorItem) => {
+    async (
+      doctorItem
+    ) => {
       if (
         !doctorItem?._id ||
         deletingDoctorId ||
@@ -1878,7 +2208,9 @@ export default function AdminDashboard({
           `/admin/doctors/${doctorItem._id}`
         );
 
-        setDeleteDoctorId(null);
+        setDeleteDoctorId(
+          null
+        );
 
         setDoctors(
           (currentDoctors) =>
@@ -1889,24 +2221,12 @@ export default function AdminDashboard({
             )
         );
 
-        startAction(
-          'Doctor deleted...',
-          'Refreshing the admin dashboard.'
-        );
-
         await load();
-
-        await new Promise(
-          (resolve) =>
-            setTimeout(
-              resolve,
-              450
-            )
-        );
 
         showVedaAlert({
           type: 'success',
-          title: 'Doctor deleted',
+          title:
+            'Doctor deleted',
           message: `${doctorItem.name || 'The doctor'} and the related records have been permanently removed.`,
           primaryText: 'Done',
         });
@@ -1938,11 +2258,13 @@ export default function AdminDashboard({
     };
 
   /* ================================================================
-     OPEN DOCTOR DASHBOARD
+     OPEN DOCTOR
   ================================================================= */
 
   const openDoctorDashboard =
-    (doctorItem) => {
+    (
+      doctorItem
+    ) => {
       if (
         actionLoading ||
         !doctorItem?._id
@@ -2004,7 +2326,8 @@ export default function AdminDashboard({
     );
 
   const doctorGroups = {
-    all: displayDoctors,
+    all:
+      displayDoctors,
 
     active:
       activeDoctors,
@@ -2022,9 +2345,15 @@ export default function AdminDashboard({
   };
 
   const doctorGroupLabels = {
-    all: 'Registered doctors',
-    active: 'Doctors with access',
-    paymentsDue: 'Payments due',
+    all:
+      'Registered doctors',
+
+    active:
+      'Doctors with access',
+
+    paymentsDue:
+      'Payments due',
+
     accessRequests:
       'Doctors requesting access',
   };
@@ -2121,12 +2450,173 @@ export default function AdminDashboard({
           <>
 
             {/* =====================================================
-                NOTIFICATIONS
+                NOTIFICATION CENTER
             ===================================================== */}
 
-            {(notifications.length > 0 ||
-              pendingPaymentDoctors.length > 0 ||
-              pendingAccessRequests.length > 0) && (
+            <View
+              style={{
+                marginTop: 18,
+                marginBottom: 18,
+              }}
+            >
+              <View
+                style={{
+                  flexDirection:
+                    'row',
+                  alignItems:
+                    'center',
+                  justifyContent:
+                    'space-between',
+                  marginBottom: 12,
+                }}
+              >
+                <View>
+                  <Text
+                    style={
+                      styles.sectionEyebrow
+                    }
+                  >
+                    COMMUNICATION
+                  </Text>
+
+                  <Text
+                    style={
+                      styles.sectionTitle
+                    }
+                  >
+                    Notification center
+                  </Text>
+                </View>
+
+                <Pressable
+                  onPress={() =>
+                    setNotificationComposerVisible(
+                      true
+                    )
+                  }
+                  style={{
+                    minHeight: 44,
+                    paddingHorizontal:
+                      16,
+                    borderRadius: 14,
+                    alignItems:
+                      'center',
+                    justifyContent:
+                      'center',
+                    backgroundColor:
+                      '#111827',
+                  }}
+                >
+                  <Text
+                    style={{
+                      color:
+                        '#ffffff',
+                      fontSize: 13,
+                      fontWeight:
+                        '800',
+                    }}
+                  >
+                    + Send notification
+                  </Text>
+                </Pressable>
+              </View>
+
+              {notifications.length >
+              0 ? (
+                <Card>
+                  {notifications
+                    .slice(0, 8)
+                    .map(
+                      (
+                        item,
+                        index
+                      ) => (
+                        <NotificationRow
+                          key={
+                            item._id ||
+                            `notification-${index}`
+                          }
+                          type={
+                            item.type?.startsWith(
+                              'payment_'
+                            )
+                              ? 'payment'
+                              : item.type ===
+                                  'access_request'
+                                ? 'access'
+                                : 'info'
+                          }
+                          title={
+                            item.title ||
+                            item.message ||
+                            'Veda notification'
+                          }
+                          text={
+                            item.message ||
+                            item.description ||
+                            'New administrator notification.'
+                          }
+                          createdAt={
+                            item.createdAt
+                          }
+                          onDelete={() =>
+                            deleteNotification(
+                              item
+                            )
+                          }
+                        />
+                      )
+                    )}
+                </Card>
+              ) : (
+                <Card>
+                  <View
+                    style={{
+                      paddingVertical:
+                        20,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 15,
+                        fontWeight:
+                          '800',
+                        color:
+                          '#111827',
+                      }}
+                    >
+                      No custom notifications
+                    </Text>
+
+                    <Text
+                      style={{
+                        marginTop: 5,
+                        color:
+                          '#6b7280',
+                        fontSize: 13,
+                        lineHeight:
+                          19,
+                      }}
+                    >
+                      Send announcements,
+                      instructions,
+                      updates or
+                      important information
+                      directly to doctors.
+                    </Text>
+                  </View>
+                </Card>
+              )}
+            </View>
+
+            {/* =====================================================
+                ATTENTION
+            ===================================================== */}
+
+            {(pendingPaymentDoctors.length >
+              0 ||
+              pendingAccessRequests.length >
+                0) && (
               <>
                 <View
                   style={
@@ -2147,7 +2637,7 @@ export default function AdminDashboard({
                         styles.sectionTitle
                       }
                     >
-                      Notifications
+                      Action alerts
                     </Text>
                   </View>
 
@@ -2162,7 +2652,6 @@ export default function AdminDashboard({
                       }
                     >
                       {
-                        notifications.length +
                         pendingPaymentDoctors.length +
                         pendingAccessRequests.length
                       }
@@ -2207,50 +2696,6 @@ export default function AdminDashboard({
                         />
                       )
                     )}
-
-                  {notifications
-                    .slice(0, 5)
-                    .map(
-                      (
-                        item,
-                        index
-                      ) => (
-                        <NotificationRow
-                          key={
-                            item._id ||
-                            `notification-${index}`
-                          }
-                          type={
-                            item.type?.startsWith(
-                              'payment_'
-                            )
-                              ? 'payment'
-                              : item.type ===
-                                  'access_request'
-                                ? 'access'
-                                : 'info'
-                          }
-                          title={
-                            item.title ||
-                            item.message ||
-                            'Veda notification'
-                          }
-                          text={
-                            item.message ||
-                            item.description ||
-                            'New administrator notification.'
-                          }
-                          createdAt={
-                            item.createdAt
-                          }
-                          onDelete={() =>
-                            deleteNotification(
-                              item
-                            )
-                          }
-                        />
-                      )
-                    )}
                 </Card>
               </>
             )}
@@ -2283,9 +2728,7 @@ export default function AdminDashboard({
               </View>
             </View>
 
-            {/* =====================================================
-                KPI
-            ===================================================== */}
+            {/* KPI */}
 
             <View
               style={
@@ -2311,12 +2754,7 @@ export default function AdminDashboard({
               <KpiCard
                 number={
                   overview?.activeDoctors ??
-                  displayDoctors.filter(
-                    (item) =>
-                      getAccessActive(
-                        item
-                      )
-                  ).length
+                  activeDoctors.length
                 }
                 label="Active doctors"
                 smallLabel="WITH ACCESS"
@@ -2357,6 +2795,8 @@ export default function AdminDashboard({
               />
             </View>
 
+            {/* GROUP LIST */}
+
             {selectedDoctorGroup ? (
               <View
                 style={
@@ -2381,8 +2821,6 @@ export default function AdminDashboard({
                   </Text>
 
                   <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Close doctor list"
                     onPress={() =>
                       setSelectedDoctorGroup(
                         null
@@ -2406,7 +2844,6 @@ export default function AdminDashboard({
                         key={
                           item._id
                         }
-                        accessibilityRole="button"
                         onPress={() =>
                           openDoctorDashboard(
                             item
@@ -2482,8 +2919,9 @@ export default function AdminDashboard({
               </View>
             ) : null}
 
+            {/* REVENUE */}
+
             <Pressable
-              accessibilityRole="button"
               onPress={() =>
                 navigation.navigate(
                   'AdminRevenue'
@@ -2658,7 +3096,9 @@ export default function AdminDashboard({
                 />
               ) : (
                 displayDoctors.map(
-                  (doctorItem) => (
+                  (
+                    doctorItem
+                  ) => (
                     <DoctorDirectoryRow
                       key={
                         doctorItem._id
@@ -2677,9 +3117,7 @@ export default function AdminDashboard({
               )}
             </Card>
 
-            {/* =====================================================
-                ADMIN INFO
-            ===================================================== */}
+            {/* ADMIN INFO */}
 
             <View
               style={
@@ -2748,7 +3186,994 @@ export default function AdminDashboard({
       </FadeIn>
 
       {/* ==========================================================
-          PAYMENT PROOF MODAL
+          CUSTOM NOTIFICATION COMPOSER
+      ========================================================== */}
+
+      <Modal
+        visible={
+          notificationComposerVisible
+        }
+        transparent
+        animationType="slide"
+        onRequestClose={
+          closeNotificationComposer
+        }
+      >
+        <View
+          style={{
+            flex: 1,
+            backgroundColor:
+              'rgba(3, 7, 18, 0.72)',
+            justifyContent:
+              'flex-end',
+          }}
+        >
+          <View
+            style={{
+              backgroundColor:
+                '#ffffff',
+              borderTopLeftRadius:
+                28,
+              borderTopRightRadius:
+                28,
+              maxHeight:
+                '94%',
+              overflow:
+                'hidden',
+            }}
+          >
+            <View
+              style={{
+                paddingHorizontal:
+                  20,
+                paddingTop: 18,
+                paddingBottom: 12,
+                borderBottomWidth:
+                  1,
+                borderBottomColor:
+                  '#eef0f4',
+                flexDirection:
+                  'row',
+                alignItems:
+                  'center',
+                justifyContent:
+                  'space-between',
+              }}
+            >
+              <View
+                style={{
+                  flex: 1,
+                  paddingRight:
+                    12,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    fontWeight:
+                      '900',
+                    letterSpacing:
+                      1.3,
+                    color:
+                      '#7c3aed',
+                  }}
+                >
+                  VEDA COMMUNICATION
+                </Text>
+
+                <Text
+                  style={{
+                    marginTop: 4,
+                    fontSize: 23,
+                    fontWeight:
+                      '900',
+                    color:
+                      '#111827',
+                  }}
+                >
+                  Send notification
+                </Text>
+
+                <Text
+                  style={{
+                    marginTop: 4,
+                    fontSize: 13,
+                    lineHeight:
+                      19,
+                    color:
+                      '#6b7280',
+                  }}
+                >
+                  Send an announcement directly
+                  to selected doctors.
+                </Text>
+              </View>
+
+              <Pressable
+                onPress={
+                  closeNotificationComposer
+                }
+                disabled={
+                  notificationSending
+                }
+                style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius:
+                    21,
+                  backgroundColor:
+                    '#f3f4f6',
+                  alignItems:
+                    'center',
+                  justifyContent:
+                    'center',
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 25,
+                    lineHeight:
+                      28,
+                    color:
+                      '#111827',
+                  }}
+                >
+                  ×
+                </Text>
+              </Pressable>
+            </View>
+
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={{
+                padding: 20,
+                paddingBottom:
+                  34,
+              }}
+              showsVerticalScrollIndicator={
+                false
+              }
+            >
+
+              {/* TITLE */}
+
+              <Text
+                style={{
+                  fontSize: 12,
+                  fontWeight:
+                    '900',
+                  color:
+                    '#374151',
+                  marginBottom:
+                    8,
+                }}
+              >
+                TITLE
+              </Text>
+
+              <TextInput
+                value={
+                  notificationTitle
+                }
+                onChangeText={
+                  setNotificationTitle
+                }
+                placeholder="e.g. Important Veda update"
+                placeholderTextColor="#9ca3af"
+                maxLength={120}
+                editable={
+                  !notificationSending
+                }
+                style={{
+                  minHeight: 52,
+                  borderWidth: 1,
+                  borderColor:
+                    '#e5e7eb',
+                  borderRadius:
+                    15,
+                  paddingHorizontal:
+                    15,
+                  color:
+                    '#111827',
+                  fontSize: 15,
+                  fontWeight:
+                    '600',
+                  backgroundColor:
+                    '#fafafa',
+                }}
+              />
+
+              {/* MESSAGE */}
+
+              <Text
+                style={{
+                  marginTop: 18,
+                  fontSize: 12,
+                  fontWeight:
+                    '900',
+                  color:
+                    '#374151',
+                  marginBottom:
+                    8,
+                }}
+              >
+                MESSAGE
+              </Text>
+
+              <TextInput
+                value={
+                  notificationMessage
+                }
+                onChangeText={
+                  setNotificationMessage
+                }
+                placeholder="Write the notification message..."
+                placeholderTextColor="#9ca3af"
+                multiline
+                maxLength={1000}
+                textAlignVertical="top"
+                editable={
+                  !notificationSending
+                }
+                style={{
+                  minHeight: 125,
+                  borderWidth: 1,
+                  borderColor:
+                    '#e5e7eb',
+                  borderRadius:
+                    15,
+                  paddingHorizontal:
+                    15,
+                  paddingTop:
+                    14,
+                  color:
+                    '#111827',
+                  fontSize: 15,
+                  lineHeight:
+                    21,
+                  backgroundColor:
+                    '#fafafa',
+                }}
+              />
+
+              {/* RECIPIENT MODE */}
+
+              <Text
+                style={{
+                  marginTop: 18,
+                  fontSize: 12,
+                  fontWeight:
+                    '900',
+                  color:
+                    '#374151',
+                  marginBottom:
+                    10,
+                }}
+              >
+                RECIPIENTS
+              </Text>
+
+              <View
+                style={{
+                  flexDirection:
+                    'row',
+                  gap: 8,
+                }}
+              >
+                {[
+                  ['all', 'All doctors'],
+                  [
+                    'single',
+                    'Single doctor',
+                  ],
+                  [
+                    'multiple',
+                    'Multiple',
+                  ],
+                ].map(
+                  (item) => {
+                    const active =
+                      notificationRecipientMode ===
+                      item[0];
+
+                    return (
+                      <Pressable
+                        key={
+                          item[0]
+                        }
+                        onPress={() => {
+                          setNotificationRecipientMode(
+                            item[0]
+                          );
+
+                          if (
+                            item[0] ===
+                            'all'
+                          ) {
+                            setSelectedNotificationDoctors(
+                              []
+                            );
+                          }
+
+                          if (
+                            item[0] ===
+                            'single' &&
+                            selectedNotificationDoctors.length >
+                              1
+                          ) {
+                            setSelectedNotificationDoctors(
+                              selectedNotificationDoctors.slice(
+                                0,
+                                1
+                              )
+                            );
+                          }
+                        }}
+                        disabled={
+                          notificationSending
+                        }
+                        style={{
+                          flex: 1,
+                          minHeight:
+                            48,
+                          borderRadius:
+                            14,
+                          borderWidth:
+                            1,
+                          borderColor:
+                            active
+                              ? '#7c3aed'
+                              : '#e5e7eb',
+                          backgroundColor:
+                            active
+                              ? '#f3e8ff'
+                              : '#ffffff',
+                          alignItems:
+                            'center',
+                          justifyContent:
+                            'center',
+                          paddingHorizontal:
+                            5,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            fontWeight:
+                              '800',
+                            color:
+                              active
+                                ? '#6d28d9'
+                                : '#4b5563',
+                            textAlign:
+                              'center',
+                          }}
+                        >
+                          {
+                            item[1]
+                          }
+                        </Text>
+                      </Pressable>
+                    );
+                  }
+                )}
+              </View>
+
+              {/* DOCTOR SELECTOR */}
+
+              {notificationRecipientMode !==
+              'all' ? (
+                <View
+                  style={{
+                    marginTop:
+                      14,
+                    borderWidth:
+                      1,
+                    borderColor:
+                      '#e5e7eb',
+                    borderRadius:
+                      18,
+                    overflow:
+                      'hidden',
+                  }}
+                >
+                  <View
+                    style={{
+                      padding:
+                        12,
+                      backgroundColor:
+                        '#fafafa',
+                    }}
+                  >
+                    <TextInput
+                      value={
+                        notificationDoctorSearch
+                      }
+                      onChangeText={
+                        setNotificationDoctorSearch
+                      }
+                      placeholder="Search doctor by name or email"
+                      placeholderTextColor="#9ca3af"
+                      editable={
+                        !notificationSending
+                      }
+                      style={{
+                        height:
+                          44,
+                        borderWidth:
+                          1,
+                        borderColor:
+                          '#e5e7eb',
+                        borderRadius:
+                          12,
+                        paddingHorizontal:
+                          13,
+                        backgroundColor:
+                          '#ffffff',
+                        color:
+                          '#111827',
+                        fontSize:
+                          13,
+                      }}
+                    />
+
+                    {notificationRecipientMode ===
+                      'multiple' && (
+                      <View
+                        style={{
+                          flexDirection:
+                            'row',
+                          justifyContent:
+                            'space-between',
+                          marginTop:
+                            10,
+                        }}
+                      >
+                        <Pressable
+                          onPress={
+                            selectAllNotificationDoctors
+                          }
+                        >
+                          <Text
+                            style={{
+                              fontSize:
+                                12,
+                              fontWeight:
+                                '800',
+                              color:
+                                '#7c3aed',
+                            }}
+                          >
+                            Select all
+                          </Text>
+                        </Pressable>
+
+                        <Pressable
+                          onPress={
+                            clearNotificationDoctors
+                          }
+                        >
+                          <Text
+                            style={{
+                              fontSize:
+                                12,
+                              fontWeight:
+                                '800',
+                              color:
+                                '#6b7280',
+                            }}
+                          >
+                            Clear
+                          </Text>
+                        </Pressable>
+                      </View>
+                    )}
+                  </View>
+
+                  <View
+                    style={{
+                      maxHeight:
+                        230,
+                    }}
+                  >
+                    <ScrollView
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {filteredNotificationDoctors.length ===
+                      0 ? (
+                        <View
+                          style={{
+                            padding:
+                              18,
+                          }}
+                        >
+                          <Text
+                            style={{
+                              color:
+                                '#6b7280',
+                              fontSize:
+                                13,
+                            }}
+                          >
+                            No doctors found.
+                          </Text>
+                        </View>
+                      ) : (
+                        filteredNotificationDoctors.map(
+                          (
+                            doctorItem
+                          ) => {
+                            const selected =
+                              selectedNotificationDoctors.some(
+                                (
+                                  id
+                                ) =>
+                                  String(
+                                    id
+                                  ) ===
+                                  String(
+                                    doctorItem._id
+                                  )
+                              );
+
+                            return (
+                              <Pressable
+                                key={
+                                  doctorItem._id
+                                }
+                                onPress={() =>
+                                  toggleNotificationDoctor(
+                                    doctorItem._id
+                                  )
+                                }
+                                disabled={
+                                  notificationSending
+                                }
+                                style={{
+                                  minHeight:
+                                    64,
+                                  paddingHorizontal:
+                                    13,
+                                  flexDirection:
+                                    'row',
+                                  alignItems:
+                                    'center',
+                                  borderBottomWidth:
+                                    1,
+                                  borderBottomColor:
+                                    '#f0f1f3',
+                                }}
+                              >
+                                <View
+                                  style={{
+                                    width:
+                                      38,
+                                    height:
+                                      38,
+                                    borderRadius:
+                                      19,
+                                    backgroundColor:
+                                      selected
+                                        ? '#ede9fe'
+                                        : '#f3f4f6',
+                                    alignItems:
+                                      'center',
+                                    justifyContent:
+                                      'center',
+                                    marginRight:
+                                      11,
+                                  }}
+                                >
+                                  <Text
+                                    style={{
+                                      fontSize:
+                                        14,
+                                      fontWeight:
+                                        '900',
+                                      color:
+                                        selected
+                                          ? '#7c3aed'
+                                          : '#4b5563',
+                                    }}
+                                  >
+                                    {doctorItem.name
+                                      ?.charAt(
+                                        0
+                                      )
+                                      ?.toUpperCase() ||
+                                      'D'}
+                                  </Text>
+                                </View>
+
+                                <View
+                                  style={{
+                                    flex:
+                                      1,
+                                  }}
+                                >
+                                  <Text
+                                    numberOfLines={
+                                      1
+                                    }
+                                    style={{
+                                      fontSize:
+                                        13,
+                                      fontWeight:
+                                        '800',
+                                      color:
+                                        '#111827',
+                                    }}
+                                  >
+                                    {doctorItem.name ||
+                                      'Doctor'}
+                                  </Text>
+
+                                  <Text
+                                    numberOfLines={
+                                      1
+                                    }
+                                    style={{
+                                      marginTop:
+                                        2,
+                                      fontSize:
+                                        11,
+                                      color:
+                                        '#6b7280',
+                                    }}
+                                  >
+                                    {doctorItem.email ||
+                                      ''}
+                                  </Text>
+                                </View>
+
+                                <View
+                                  style={{
+                                    width:
+                                      24,
+                                    height:
+                                      24,
+                                    borderRadius:
+                                      7,
+                                    borderWidth:
+                                      1.5,
+                                    borderColor:
+                                      selected
+                                        ? '#7c3aed'
+                                        : '#d1d5db',
+                                    backgroundColor:
+                                      selected
+                                        ? '#7c3aed'
+                                        : '#ffffff',
+                                    alignItems:
+                                      'center',
+                                    justifyContent:
+                                      'center',
+                                  }}
+                                >
+                                  {selected && (
+                                    <Text
+                                      style={{
+                                        color:
+                                          '#ffffff',
+                                        fontSize:
+                                          15,
+                                        fontWeight:
+                                          '900',
+                                      }}
+                                    >
+                                      ✓
+                                    </Text>
+                                  )}
+                                </View>
+                              </Pressable>
+                            );
+                          }
+                        )
+                      )}
+                    </ScrollView>
+                  </View>
+                </View>
+              ) : null}
+
+              {/* RECIPIENT SUMMARY */}
+
+              <View
+                style={{
+                  marginTop:
+                    12,
+                  padding:
+                    13,
+                  borderRadius:
+                    14,
+                  backgroundColor:
+                    '#f5f3ff',
+                  borderWidth:
+                    1,
+                  borderColor:
+                    '#ede9fe',
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize:
+                      11,
+                    fontWeight:
+                      '900',
+                    color:
+                      '#6d28d9',
+                  }}
+                >
+                  RECIPIENT
+                </Text>
+
+                <Text
+                  style={{
+                    marginTop:
+                      3,
+                    fontSize:
+                      13,
+                    fontWeight:
+                      '700',
+                    color:
+                      '#312e81',
+                  }}
+                >
+                  {
+                    notificationRecipientText
+                  }
+                </Text>
+              </View>
+
+              {/* PHOTO */}
+
+              <Text
+                style={{
+                  marginTop:
+                    18,
+                  fontSize:
+                    12,
+                  fontWeight:
+                    '900',
+                  color:
+                    '#374151',
+                  marginBottom:
+                    9,
+                }}
+              >
+                ATTACHMENT
+              </Text>
+
+              {notificationPhoto ? (
+                <View
+                  style={{
+                    borderRadius:
+                      18,
+                    borderWidth:
+                      1,
+                    borderColor:
+                      '#e5e7eb',
+                    overflow:
+                      'hidden',
+                  }}
+                >
+                  <Image
+                    source={{
+                      uri:
+                        notificationPhoto.uri,
+                    }}
+                    resizeMode="cover"
+                    style={{
+                      width:
+                        '100%',
+                      height:
+                        170,
+                    }}
+                  />
+
+                  <View
+                    style={{
+                      padding:
+                        12,
+                      flexDirection:
+                        'row',
+                      alignItems:
+                        'center',
+                      justifyContent:
+                        'space-between',
+                    }}
+                  >
+                    <Text
+                      numberOfLines={
+                        1
+                      }
+                      style={{
+                        flex:
+                          1,
+                        fontSize:
+                          12,
+                        color:
+                          '#4b5563',
+                        fontWeight:
+                          '600',
+                        marginRight:
+                          10,
+                      }}
+                    >
+                      {
+                        notificationPhoto.fileName
+                      }
+                    </Text>
+
+                    <Pressable
+                      onPress={() =>
+                        setNotificationPhoto(
+                          null
+                        )
+                      }
+                    >
+                      <Text
+                        style={{
+                          color:
+                            '#dc2626',
+                          fontSize:
+                            12,
+                          fontWeight:
+                            '900',
+                        }}
+                      >
+                        Remove
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <Pressable
+                  onPress={
+                    chooseNotificationPhoto
+                  }
+                  disabled={
+                    notificationSending
+                  }
+                  style={{
+                    minHeight:
+                      92,
+                    borderRadius:
+                      18,
+                    borderWidth:
+                      1.5,
+                    borderStyle:
+                      'dashed',
+                    borderColor:
+                      '#c4b5fd',
+                    backgroundColor:
+                      '#faf5ff',
+                    alignItems:
+                      'center',
+                    justifyContent:
+                      'center',
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize:
+                        24,
+                    }}
+                  >
+                    +
+                  </Text>
+
+                  <Text
+                    style={{
+                      marginTop:
+                        3,
+                      fontSize:
+                        13,
+                      fontWeight:
+                        '800',
+                      color:
+                        '#6d28d9',
+                    }}
+                  >
+                    Attach photo
+                  </Text>
+
+                  <Text
+                    style={{
+                      marginTop:
+                        3,
+                      fontSize:
+                        11,
+                      color:
+                        '#8b5cf6',
+                    }}
+                  >
+                    Optional
+                  </Text>
+                </Pressable>
+              )}
+
+              {/* SEND */}
+
+              <Pressable
+                onPress={
+                  sendCustomNotification
+                }
+                disabled={
+                  notificationSending
+                }
+                style={{
+                  marginTop:
+                    22,
+                  minHeight:
+                    56,
+                  borderRadius:
+                    17,
+                  backgroundColor:
+                    notificationSending
+                      ? '#9ca3af'
+                      : '#111827',
+                  alignItems:
+                    'center',
+                  justifyContent:
+                    'center',
+                }}
+              >
+                <Text
+                  style={{
+                    color:
+                      '#ffffff',
+                    fontSize:
+                      14,
+                    fontWeight:
+                      '900',
+                  }}
+                >
+                  {notificationSending
+                    ? 'Sending notification...'
+                    : 'Send notification'}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={
+                  closeNotificationComposer
+                }
+                disabled={
+                  notificationSending
+                }
+                style={{
+                  minHeight:
+                    48,
+                  alignItems:
+                    'center',
+                  justifyContent:
+                    'center',
+                  marginTop:
+                    5,
+                }}
+              >
+                <Text
+                  style={{
+                    color:
+                      '#6b7280',
+                    fontSize:
+                      13,
+                    fontWeight:
+                      '700',
+                  }}
+                >
+                  Cancel
+                </Text>
+              </Pressable>
+
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ==========================================================
+          PAYMENT PROOF
       ========================================================== */}
 
       <Modal
@@ -2803,17 +4228,13 @@ export default function AdminDashboard({
                     styles.proofTitle
                   }
                 >
-                  {
-                    paymentProofPreview
-                      ?.doctorName ||
-                    'Loading screenshot'
-                  }
+                  {paymentProofPreview
+                    ?.doctorName ||
+                    'Loading screenshot'}
                 </Text>
               </View>
 
               <Pressable
-                accessibilityRole="button"
-                accessibilityLabel="Close payment screenshot"
                 onPress={() =>
                   setPaymentProofPreview(
                     null
@@ -2958,7 +4379,7 @@ export default function AdminDashboard({
       />
 
       {/* ==========================================================
-          VEDA PREMIUM ALERT
+          VEDA ALERT
       ========================================================== */}
 
       <VedaAlertModal

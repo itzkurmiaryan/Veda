@@ -1050,186 +1050,173 @@ export default function AdminDashboard({
       }
     };
 
-  const sendCustomNotification =
-    async () => {
-      if (notificationSending) {
-        return;
-      }
+const sendCustomNotification = async () => {
+  if (notificationSending) {
+    return;
+  }
 
-      const title =
-        notificationTitle.trim();
+  const title = notificationTitle.trim();
+  const message = notificationMessage.trim();
 
-      const message =
-        notificationMessage.trim();
+  if (!title) {
+    showVedaAlert({
+      type: 'warning',
+      title: 'Notification title required',
+      message: 'Please enter a title for the notification.',
+      primaryText: 'Okay',
+    });
 
-      if (!title) {
-        showVedaAlert({
-          type: 'warning',
-          title:
-            'Notification title required',
-          message:
-            'Please enter a title for the notification.',
-          primaryText: 'Okay',
-        });
+    return;
+  }
 
-        return;
-      }
+  if (!message) {
+    showVedaAlert({
+      type: 'warning',
+      title: 'Notification message required',
+      message: 'Please enter a message for the doctors.',
+      primaryText: 'Okay',
+    });
 
-      if (!message) {
-        showVedaAlert({
-          type: 'warning',
-          title:
-            'Notification message required',
-          message:
-            'Please enter a message for the doctors.',
-          primaryText: 'Okay',
-        });
+    return;
+  }
 
-        return;
-      }
+  if (displayDoctors.length === 0) {
+    showVedaAlert({
+      type: 'warning',
+      title: 'No doctors available',
+      message:
+        'There are no registered doctors available to receive this notification.',
+      primaryText: 'Okay',
+    });
 
-      if (
-        displayDoctors.length === 0
-      ) {
-        showVedaAlert({
-          type: 'warning',
-          title:
-            'No doctors available',
-          message:
-            'There are no registered doctors available to receive this notification.',
-          primaryText: 'Okay',
-        });
+    return;
+  }
 
-        return;
-      }
+  if (
+    notificationRecipientMode !== 'all' &&
+    selectedNotificationDoctors.length === 0
+  ) {
+    showVedaAlert({
+      type: 'warning',
+      title: 'Select recipient',
+      message:
+        'Please select at least one doctor before sending the notification.',
+      primaryText: 'Okay',
+    });
 
-      if (
-        notificationRecipientMode !==
-          'all' &&
-        selectedNotificationDoctors.length ===
-          0
-      ) {
-        showVedaAlert({
-          type: 'warning',
-          title:
-            'Select recipient',
-          message:
-            'Please select at least one doctor before sending the notification.',
-          primaryText: 'Okay',
-        });
+    return;
+  }
 
-        return;
-      }
+  if (
+    notificationRecipientMode === 'single' &&
+    selectedNotificationDoctors.length !== 1
+  ) {
+    showVedaAlert({
+      type: 'warning',
+      title: 'Select one doctor',
+      message:
+        'Single doctor mode requires exactly one doctor.',
+      primaryText: 'Okay',
+    });
 
-      if (
-        notificationRecipientMode ===
-          'single' &&
-        selectedNotificationDoctors.length !==
-          1
-      ) {
-        showVedaAlert({
-          type: 'warning',
-          title:
-            'Select one doctor',
-          message:
-            'Single doctor mode requires exactly one doctor.',
-          primaryText: 'Okay',
-        });
+    return;
+  }
 
-        return;
-      }
+  try {
+    setNotificationSending(true);
 
-      try {
-        setNotificationSending(
-          true
-        );
+    startAction(
+      'Sending notification...',
+      'Delivering the notification securely to the selected doctors.'
+    );
 
-        startAction(
-          'Sending notification...',
-          'Delivering the notification securely to the selected doctors.'
-        );
+    const isAllDoctors =
+      notificationRecipientMode === 'all';
 
-        const payload = {
-          title,
-          message,
+    const payload = {
+      title,
+      message,
 
-          recipientMode:
-            notificationRecipientMode,
+      // Backend compatibility
+      sendToAll: isAllDoctors,
 
-          doctorIds:
-            notificationRecipientMode ===
-            'all'
-              ? displayDoctors.map(
-                  (item) =>
-                    item._id
-                )
-              : selectedNotificationDoctors,
+      // Keep this for frontend/reference compatibility
+      recipientMode: notificationRecipientMode,
 
-          photo:
-            notificationPhoto
-              ? {
-                  data:
-                    notificationPhoto.data,
-                  contentType:
-                    notificationPhoto.contentType,
-                  fileName:
-                    notificationPhoto.fileName,
-                }
-              : null,
-        };
+      // Only send IDs when not sending to everyone
+      doctorIds: isAllDoctors
+        ? []
+        : selectedNotificationDoctors,
 
-        const response =
-          await api.post(
-            '/admin/notifications/send',
-            payload
-          );
-
-        const created =
-          response?.data?.data;
-
-        setNotificationComposerVisible(
-          false
-        );
-
-        resetNotificationComposer();
-
-        await load();
-
-        showVedaAlert({
-          type: 'success',
-          title:
-            'Notification sent',
-          message:
-            created?.count
-              ? `${created.count} doctor(s) have received the notification.`
-              : 'The notification has been sent successfully to the selected doctors.',
-          primaryText: 'Done',
-        });
-      } catch (error) {
-        console.error(
-          'CUSTOM NOTIFICATION ERROR:',
-          error
-        );
-
-        showVedaAlert({
-          type: 'error',
-          title:
-            'Notification failed',
-          message:
-            error.response?.data
-              ?.message ||
-            error.message ||
-            'Unable to send notification.',
-          primaryText: 'Close',
-        });
-      } finally {
-        setNotificationSending(
-          false
-        );
-        stopAction();
-      }
+      photo: notificationPhoto
+        ? {
+            data: notificationPhoto.data,
+            contentType: notificationPhoto.contentType,
+            fileName: notificationPhoto.fileName,
+          }
+        : null,
     };
 
+    console.log('📢 SENDING CUSTOM NOTIFICATION');
+    console.log('RECIPIENT MODE:', notificationRecipientMode);
+    console.log('SEND TO ALL:', isAllDoctors);
+    console.log(
+      'DOCTOR IDS:',
+      payload.doctorIds
+    );
+
+    const response = await api.post(
+      '/admin/notifications/send',
+      payload
+    );
+
+    console.log(
+      '✅ CUSTOM NOTIFICATION RESPONSE:',
+      response?.data
+    );
+
+    const sentCount =
+      response?.data?.sentCount ??
+      response?.data?.data?.length ??
+      0;
+
+    setNotificationComposerVisible(false);
+
+    resetNotificationComposer();
+
+    await load();
+
+    showVedaAlert({
+      type: 'success',
+      title: 'Notification sent',
+      message:
+        sentCount > 0
+          ? `Notification successfully sent to ${sentCount} doctor${
+              sentCount === 1 ? '' : 's'
+            }.`
+          : 'The notification has been sent successfully.',
+      primaryText: 'Done',
+    });
+  } catch (error) {
+    console.error(
+      'CUSTOM NOTIFICATION ERROR:',
+      error?.response?.data || error
+    );
+
+    showVedaAlert({
+      type: 'error',
+      title: 'Notification failed',
+      message:
+        error.response?.data?.message ||
+        error.message ||
+        'Unable to send notification.',
+      primaryText: 'Close',
+    });
+  } finally {
+    setNotificationSending(false);
+    stopAction();
+  }
+};
   /* ================================================================
      REGISTRATION APPROVAL
   ================================================================= */

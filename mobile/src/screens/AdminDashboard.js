@@ -154,58 +154,84 @@ export default function AdminDashboard({
     setNotificationDoctorSearch,
   ] = useState('');
 
-  /* ================================================================
-     VEDA ALERT
-  ================================================================= */
+ /* ================================================================
+   VEDA ALERT
+================================================================= */
 
-  const [vedaAlert, setVedaAlert] =
-    useState({
+const [vedaAlert, setVedaAlert] =
+  useState({
+    visible: false,
+    type: 'info',
+    title: '',
+    message: '',
+    primaryText: 'Done',
+    secondaryText: '',
+    onPrimary: null,
+    onSecondary: null,
+  });
+
+/*
+ * Always close the Veda alert.
+ * This is the default action for Done / Close / Okay buttons.
+ */
+const closeVedaAlert = useCallback(
+  () => {
+    setVedaAlert((current) => ({
+      ...current,
       visible: false,
-      type: 'info',
-      title: '',
-      message: '',
-      primaryText: 'Done',
-      secondaryText: '',
       onPrimary: null,
       onSecondary: null,
+    }));
+  },
+  []
+);
+
+/*
+ * Show Veda alert.
+ *
+ * Important:
+ * If a custom onPrimary action is NOT provided,
+ * the primary button automatically closes the alert.
+ *
+ * This fixes:
+ * Notification sent -> Done -> popup remains open
+ */
+const showVedaAlert = useCallback(
+  ({
+    type = 'info',
+    title = 'Veda',
+    message = '',
+    primaryText = 'Done',
+    secondaryText = '',
+    onPrimary = null,
+    onSecondary = null,
+  }) => {
+    setVedaAlert({
+      visible: true,
+      type,
+      title,
+      message,
+      primaryText,
+      secondaryText,
+
+      // Custom action if provided,
+      // otherwise simply close the alert.
+      onPrimary:
+        typeof onPrimary === 'function'
+          ? onPrimary
+          : closeVedaAlert,
+
+      // Same behaviour for secondary button.
+      onSecondary:
+        secondaryText
+          ? typeof onSecondary === 'function'
+            ? onSecondary
+            : closeVedaAlert
+          : null,
     });
-
-  const showVedaAlert = useCallback(
-    ({
-      type = 'info',
-      title = 'Veda',
-      message = '',
-      primaryText = 'Done',
-      secondaryText = '',
-      onPrimary = null,
-      onSecondary = null,
-    }) => {
-      setVedaAlert({
-        visible: true,
-        type,
-        title,
-        message,
-        primaryText,
-        secondaryText,
-        onPrimary,
-        onSecondary,
-      });
-    },
-    []
-  );
-
-  const closeVedaAlert = useCallback(
-    () => {
-      setVedaAlert((current) => ({
-        ...current,
-        visible: false,
-        onPrimary: null,
-        onSecondary: null,
-      }));
-    },
-    []
-  );
-
+  },
+  [closeVedaAlert]
+);
   /* ================================================================
      HELPERS
   ================================================================= */

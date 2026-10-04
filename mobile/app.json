@@ -2,31 +2,39 @@
   "expo": {
     "name": "Veda",
     "slug": "veda",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/veda.png",
+
     "splash": {
       "backgroundColor": "#0F172A"
     },
+
     "android": {
       "package": "com.veda.app",
+      "versionCode": 2,
+
       "adaptiveIcon": {
         "foregroundImage": "./assets/veda.png",
         "backgroundColor": "#0F172A"
       }
     },
+
     "ios": {
       "bundleIdentifier": "com.veda.app"
     },
+
     "extra": {
       "eas": {
         "projectId": "c546e41d-4ad5-46d8-8ac7-c395d78a22cf"
       }
     },
+
     "runtimeVersion": {
       "policy": "appVersion"
     },
+
     "updates": {
       "url": "https://u.expo.dev/c546e41d-4ad5-46d8-8ac7-c395d78a22cf"
     }

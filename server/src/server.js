@@ -8,6 +8,7 @@ const bcrypt = require('bcryptjs');
 
 const Admin = require('./models/Admin');
 const Doctor = require('./models/Doctor');
+
 const ensurePaymentNotification =
   require('./services/paymentCycle');
 
@@ -38,7 +39,7 @@ app.use(morgan('dev'));
 app.get('/', (req, res) => {
   res.json({
     success: true,
-    message: 'RxVault API is running',
+    message: 'Veda API is running',
   });
 });
 
@@ -75,6 +76,25 @@ app.use(
 
 /*
 |--------------------------------------------------------------------------
+| Veda App Version / Update
+|--------------------------------------------------------------------------
+|
+| Public endpoint.
+|
+| No login/token required.
+|
+| GET:
+| /api/app-version
+|
+*/
+
+app.use(
+  '/api/app-version',
+  require('./routes/appVersion')
+);
+
+/*
+|--------------------------------------------------------------------------
 | Error Handler
 |--------------------------------------------------------------------------
 */
@@ -90,6 +110,7 @@ app.use(
       err.status || 500
     ).json({
       success: false,
+
       message:
         err.message ||
         'Server error',
@@ -105,6 +126,12 @@ app.use(
 
 const port =
   process.env.PORT || 5000;
+
+/*
+|--------------------------------------------------------------------------
+| Payment Notification Sync
+|--------------------------------------------------------------------------
+*/
 
 const syncDuePayments = async () => {
   try {
@@ -128,12 +155,18 @@ const syncDuePayments = async () => {
   }
 };
 
+/*
+|--------------------------------------------------------------------------
+| Server Logs
+|--------------------------------------------------------------------------
+*/
+
 console.log(
   '--------------------------------'
 );
 
 console.log(
-  'Starting RxVault server...'
+  'Starting Veda server...'
 );
 
 console.log(
@@ -155,22 +188,43 @@ console.log(
   '--------------------------------'
 );
 
+/*
+|--------------------------------------------------------------------------
+| MongoDB Connection
+|--------------------------------------------------------------------------
+*/
+
 mongoose
   .connect(
     process.env.MONGO_URI
   )
+
   .then(async () => {
     console.log(
       '✅ MongoDB connected successfully'
     );
 
+    /*
+    |--------------------------------------------------------------------------
+    | Payment Sync
+    |--------------------------------------------------------------------------
+    */
+
     syncDuePayments();
+
     const paymentSyncInterval =
       setInterval(
         syncDuePayments,
         60 * 60 * 1000
       );
+
     paymentSyncInterval.unref();
+
+    /*
+    |--------------------------------------------------------------------------
+    | Admin Setup
+    |--------------------------------------------------------------------------
+    */
 
     try {
       const email =
@@ -215,15 +269,26 @@ mongoose
       );
     }
 
+    /*
+    |--------------------------------------------------------------------------
+    | Start Express Server
+    |--------------------------------------------------------------------------
+    */
+
     app.listen(
       port,
       () => {
         console.log(
-          `🚀 RxVault API running on ${port}`
+          `🚀 Veda API running on ${port}`
+        );
+
+        console.log(
+          `📱 Version API: /api/app-version`
         );
       }
     );
   })
+
   .catch((error) => {
     console.error(
       '❌ MongoDB connection failed'

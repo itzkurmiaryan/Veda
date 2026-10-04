@@ -44,6 +44,8 @@ import Help from './src/screens/Help';
 
 import LoginReminder from './src/components/LoginReminder';
 
+import AppUpdateChecker from './src/components/AppUpdateChecker';
+
 
 const Stack =
   createNativeStackNavigator();
@@ -220,6 +222,19 @@ function AppNav() {
           navigationRef
         }
       />
+
+
+      {/*
+      |--------------------------------------------------------------------------
+      | Veda Native Update Checker
+      |--------------------------------------------------------------------------
+      |
+      | This is outside NavigationContainer so the update popup
+      | can appear globally on any Veda screen.
+      |
+      */}
+
+      <AppUpdateChecker />
 
     </>
   );

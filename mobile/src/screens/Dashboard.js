@@ -3525,7 +3525,7 @@ const styles = StyleSheet.create({
 
   notificationBellIcon: {
     color: '#102C3C',
-    fontSize: 0,
+    fontSize: 1,
   },
 
   notificationBellInner: {

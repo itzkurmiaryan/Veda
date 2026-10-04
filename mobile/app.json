@@ -2,7 +2,7 @@
   "expo": {
     "name": "Veda",
     "slug": "veda",
-    "version": "1.0.1",
+    "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "automatic",
     "icon": "./assets/veda.png",
@@ -13,7 +13,7 @@
 
     "android": {
       "package": "com.veda.app",
-      "versionCode": 2,
+      "versionCode": 1,
 
       "adaptiveIcon": {
         "foregroundImage": "./assets/veda.png",

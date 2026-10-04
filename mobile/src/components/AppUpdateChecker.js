@@ -7,17 +7,23 @@ import React, {
 
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
-  Alert,
 } from 'react-native';
 
 import * as Application from 'expo-application';
-import * as FileSystem from 'expo-file-system';
+
+// Expo SDK 54
+// Legacy FileSystem APIs are used for APK downloading
+// and converting the file URI to a content URI.
+import * as FileSystem from 'expo-file-system/legacy';
+
 import * as IntentLauncher from 'expo-intent-launcher';
 
 import axios from 'axios';
@@ -68,6 +74,7 @@ const isNewerVersion = (
 
       });
 
+
   const latest =
     String(latestVersion)
       .split('.')
@@ -82,11 +89,13 @@ const isNewerVersion = (
 
       });
 
+
   const length =
     Math.max(
       current.length,
       latest.length
     );
+
 
   for (
     let index = 0;
@@ -100,12 +109,14 @@ const isNewerVersion = (
     const latestValue =
       latest[index] || 0;
 
+
     if (
       latestValue >
       currentValue
     ) {
       return true;
     }
+
 
     if (
       latestValue <
@@ -115,6 +126,7 @@ const isNewerVersion = (
     }
 
   }
+
 
   return false;
 };
@@ -133,15 +145,18 @@ export default function AppUpdateChecker() {
     setVisible,
   ] = useState(false);
 
+
   const [
     checking,
     setChecking,
   ] = useState(false);
 
+
   const [
     updating,
     setUpdating,
   ] = useState(false);
+
 
   const [
     updateInfo,
@@ -173,7 +188,7 @@ export default function AppUpdateChecker() {
 
       /*
       |--------------------------------------------------------------------------
-      | Installed Veda version
+      | Current installed version
       |--------------------------------------------------------------------------
       */
 
@@ -182,7 +197,13 @@ export default function AppUpdateChecker() {
 
 
       if (!currentVersion) {
+
+        console.log(
+          'Veda: Current application version not found.'
+        );
+
         return;
+
       }
 
 
@@ -191,9 +212,21 @@ export default function AppUpdateChecker() {
         setChecking(true);
 
 
+        console.log(
+          'Veda current version:',
+          currentVersion
+        );
+
+
+        console.log(
+          'Checking update:',
+          VERSION_CHECK_URL
+        );
+
+
         /*
         |--------------------------------------------------------------------------
-        | Get latest version from backend
+        | Backend request
         |--------------------------------------------------------------------------
         */
 
@@ -210,11 +243,23 @@ export default function AppUpdateChecker() {
           response?.data;
 
 
+        console.log(
+          'Veda update response:',
+          data
+        );
+
+
         if (
           !data ||
           !data.success
         ) {
+
+          console.log(
+            'Veda: Invalid update response.'
+          );
+
           return;
+
         }
 
 
@@ -233,6 +278,12 @@ export default function AppUpdateChecker() {
             currentVersion,
             latestVersion
           );
+
+
+        console.log(
+          'Veda update available:',
+          updateAvailable
+        );
 
 
         if (
@@ -265,6 +316,7 @@ export default function AppUpdateChecker() {
 
           });
 
+
           setVisible(true);
 
         }
@@ -273,12 +325,13 @@ export default function AppUpdateChecker() {
 
         /*
         |--------------------------------------------------------------------------
-        | Update check must never crash Veda
+        | Update check should NEVER crash the app
         |--------------------------------------------------------------------------
         */
 
         console.log(
           'Veda update check failed:',
+          error?.response?.data ||
           error?.message ||
           error
         );
@@ -294,7 +347,7 @@ export default function AppUpdateChecker() {
 
   /*
   |--------------------------------------------------------------------------
-  | Check When Component Mounts
+  | Check On App Start
   |--------------------------------------------------------------------------
   */
 
@@ -328,12 +381,31 @@ export default function AppUpdateChecker() {
   const downloadApk =
     async (downloadUrl) => {
 
-      if (
-        !downloadUrl
-      ) {
+      if (!downloadUrl) {
+
         throw new Error(
           'APK download URL is missing.'
         );
+
+      }
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | Check cache directory
+      |--------------------------------------------------------------------------
+      */
+
+      const cacheDirectory =
+        FileSystem.cacheDirectory;
+
+
+      if (!cacheDirectory) {
+
+        throw new Error(
+          'Android cache directory is unavailable.'
+        );
+
       }
 
 
@@ -347,25 +419,36 @@ export default function AppUpdateChecker() {
         `Veda-${Date.now()}.apk`;
 
 
-      /*
-      |--------------------------------------------------------------------------
-      | Temporary local path
-      |--------------------------------------------------------------------------
-      */
-
       const fileUri =
-        `${FileSystem.cacheDirectory}${fileName}`;
+        `${cacheDirectory}${fileName}`;
 
 
       console.log(
-        'Veda APK download started:',
+        '--------------------------------'
+      );
+
+      console.log(
+        'VEDA APK DOWNLOAD'
+      );
+
+      console.log(
+        'Download URL:',
         downloadUrl
+      );
+
+      console.log(
+        'Local file:',
+        fileUri
+      );
+
+      console.log(
+        '--------------------------------'
       );
 
 
       /*
       |--------------------------------------------------------------------------
-      | Download APK
+      | Download
       |--------------------------------------------------------------------------
       */
 
@@ -376,22 +459,77 @@ export default function AppUpdateChecker() {
         );
 
 
+      console.log(
+        'Veda APK download result:',
+        result
+      );
+
+
+      /*
+      |--------------------------------------------------------------------------
+      | Validate HTTP response
+      |--------------------------------------------------------------------------
+      */
+
       if (
         !result ||
         result.status !== 200
       ) {
 
         throw new Error(
-          `APK download failed. Status: ${
-            result?.status || 'unknown'
+          `APK download failed. HTTP status: ${
+            result?.status ||
+            'unknown'
           }`
         );
 
       }
 
 
+      /*
+      |--------------------------------------------------------------------------
+      | Verify downloaded file
+      |--------------------------------------------------------------------------
+      */
+
+      const fileInfo =
+        await FileSystem.getInfoAsync(
+          result.uri
+        );
+
+
       console.log(
-        'Veda APK downloaded:',
+        'Veda APK file info:',
+        fileInfo
+      );
+
+
+      if (
+        !fileInfo ||
+        !fileInfo.exists
+      ) {
+
+        throw new Error(
+          'Downloaded APK file does not exist.'
+        );
+
+      }
+
+
+      if (
+        fileInfo.size !== undefined &&
+        fileInfo.size <= 0
+      ) {
+
+        throw new Error(
+          'Downloaded APK file is empty.'
+        );
+
+      }
+
+
+      console.log(
+        'Veda APK downloaded successfully:',
         result.uri
       );
 
@@ -403,7 +541,7 @@ export default function AppUpdateChecker() {
 
   /*
   |--------------------------------------------------------------------------
-  | Open Android APK Installer
+  | Install APK
   |--------------------------------------------------------------------------
   */
 
@@ -417,21 +555,40 @@ export default function AppUpdateChecker() {
       }
 
 
-      if (
-        !apkUri
-      ) {
+      if (!apkUri) {
+
         throw new Error(
           'APK file path is missing.'
         );
+
       }
+
+
+      console.log(
+        '--------------------------------'
+      );
+
+      console.log(
+        'VEDA APK INSTALLER'
+      );
+
+      console.log(
+        'APK URI:',
+        apkUri
+      );
+
+      console.log(
+        '--------------------------------'
+      );
 
 
       /*
       |--------------------------------------------------------------------------
-      | Convert local file URI to Android content URI
+      | Convert file URI to content URI
       |--------------------------------------------------------------------------
       |
-      | FileProvider is handled by Expo/Android.
+      | Android Package Installer normally needs
+      | a content:// URI instead of file:// URI.
       |
       */
 
@@ -447,14 +604,27 @@ export default function AppUpdateChecker() {
       );
 
 
+      if (!contentUri) {
+
+        throw new Error(
+          'Could not create Android content URI.'
+        );
+
+      }
+
+
       /*
       |--------------------------------------------------------------------------
-      | Launch Android package installer
+      | Launch Android Package Installer
       |--------------------------------------------------------------------------
+      |
+      | INSTALL_PACKAGE tells Android that the
+      | selected file is an APK installation package.
+      |
       */
 
       await IntentLauncher.startActivityAsync(
-        'android.intent.action.VIEW',
+        'android.intent.action.INSTALL_PACKAGE',
         {
           data: contentUri,
 
@@ -462,10 +632,14 @@ export default function AppUpdateChecker() {
             'application/vnd.android.package-archive',
 
           flags:
-            1 |
-            2 |
-            268435456,
+            1 |             // FLAG_GRANT_READ_URI_PERMISSION
+            268435456,      // FLAG_ACTIVITY_NEW_TASK
         }
+      );
+
+
+      console.log(
+        'Veda Android Package Installer launched.'
       );
 
     };
@@ -495,27 +669,25 @@ export default function AppUpdateChecker() {
 
         /*
         |--------------------------------------------------------------------------
-        | Direct APK update
+        | APK URL
         |--------------------------------------------------------------------------
-        |
-        | We intentionally prefer downloadUrl.
-        |
-        | This allows users to update directly
-        | without opening a browser.
-        |
         */
 
         const downloadUrl =
           updateInfo.downloadUrl;
 
 
-        if (
-          !downloadUrl
-        ) {
+        /*
+        |--------------------------------------------------------------------------
+        | No APK URL
+        |--------------------------------------------------------------------------
+        */
+
+        if (!downloadUrl) {
 
           /*
           |--------------------------------------------------------------------------
-          | Fallback to Play Store if configured
+          | Play Store fallback
           |--------------------------------------------------------------------------
           */
 
@@ -528,19 +700,20 @@ export default function AppUpdateChecker() {
               'Direct APK download is unavailable. Opening Play Store.'
             );
 
-            const Linking =
-              require('react-native')
-                .Linking;
 
             await Linking.openURL(
               updateInfo.playStoreUrl
             );
 
+
             if (
               !updateInfo.forceUpdate
             ) {
+
               setVisible(false);
+
             }
+
 
             return;
 
@@ -556,7 +729,7 @@ export default function AppUpdateChecker() {
 
         /*
         |--------------------------------------------------------------------------
-        | Download
+        | Download APK
         |--------------------------------------------------------------------------
         */
 
@@ -568,7 +741,7 @@ export default function AppUpdateChecker() {
 
         /*
         |--------------------------------------------------------------------------
-        | Open Installer
+        | Open Android Installer
         |--------------------------------------------------------------------------
         */
 
@@ -579,7 +752,7 @@ export default function AppUpdateChecker() {
 
         /*
         |--------------------------------------------------------------------------
-        | Close optional update popup
+        | Close popup
         |--------------------------------------------------------------------------
         */
 
@@ -594,15 +767,43 @@ export default function AppUpdateChecker() {
       } catch (error) {
 
         console.log(
-          'Veda APK update failed:',
-          error?.message ||
+          '================================'
+        );
+
+        console.log(
+          'VEDA APK UPDATE FAILED'
+        );
+
+        console.log(
+          'Error message:',
+          error?.message
+        );
+
+        console.log(
+          'Error response:',
+          error?.response?.data
+        );
+
+        console.log(
+          'Full error:',
           error
         );
 
+        console.log(
+          '================================'
+        );
+
+
+        /*
+        |--------------------------------------------------------------------------
+        | Show exact error
+        |--------------------------------------------------------------------------
+        */
 
         Alert.alert(
           'Update Failed',
-          'Veda could not download or open the update. Please try again.',
+          error?.message ||
+          'Veda could not download or install the update.',
           [
             {
               text: 'OK',
@@ -634,6 +835,7 @@ export default function AppUpdateChecker() {
         return;
       }
 
+
       setVisible(false);
 
     };
@@ -649,7 +851,9 @@ export default function AppUpdateChecker() {
     checking &&
     !visible
   ) {
+
     return null;
+
   }
 
 
@@ -663,7 +867,9 @@ export default function AppUpdateChecker() {
     !visible ||
     !updateInfo
   ) {
+
     return null;
+
   }
 
 
@@ -674,6 +880,7 @@ export default function AppUpdateChecker() {
   */
 
   return (
+
     <Modal
       visible={visible}
       transparent
@@ -694,7 +901,7 @@ export default function AppUpdateChecker() {
           style={styles.card}
         >
 
-          {/* Icon */}
+          {/* Veda Icon */}
 
           <View
             style={styles.iconContainer}
@@ -745,6 +952,7 @@ export default function AppUpdateChecker() {
                 Current
               </Text>
 
+
               <Text
                 style={styles.versionValue}
               >
@@ -771,6 +979,7 @@ export default function AppUpdateChecker() {
                 New
               </Text>
 
+
               <Text
                 style={styles.newVersionValue}
               >
@@ -795,7 +1004,7 @@ export default function AppUpdateChecker() {
           )}
 
 
-          {/* Download information */}
+          {/* Download Status */}
 
           {updating && (
 
@@ -874,7 +1083,7 @@ export default function AppUpdateChecker() {
           </View>
 
 
-          {/* Mandatory update */}
+          {/* Force Update Message */}
 
           {updateInfo.forceUpdate && (
 
@@ -892,6 +1101,7 @@ export default function AppUpdateChecker() {
       </View>
 
     </Modal>
+
   );
 
 }

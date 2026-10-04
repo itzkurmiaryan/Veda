@@ -44,6 +44,7 @@ import Help from './src/screens/Help';
 
 import LoginReminder from './src/components/LoginReminder';
 
+import AppUpdateChecker from './src/components/AppUpdateChecker';
 
 
 const Stack =
@@ -233,6 +234,7 @@ function AppNav() {
       |
       */}
 
+      <AppUpdateChecker />
 
     </>
   );

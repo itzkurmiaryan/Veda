@@ -67,6 +67,7 @@ export const Screen = ({
     <View
       style={[
         styles.screenInner,
+        !scroll && styles.flex,
         {
           width: '100%',
           maxWidth: maxContentWidth,
@@ -107,7 +108,7 @@ export const Screen = ({
 
     </ScrollView>
   ) : (
-    <View style={styles.screen}>
+    <View style={[styles.screen, styles.flex]}>
 
       {inner}
 

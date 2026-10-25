@@ -33,6 +33,9 @@ export default function Login({
     login,
     requestAccess,
     actionLoading,
+    showLoading,
+    showError,
+    hideFeedback,
   } = useAuth();
 
   const [email, setEmail] =
@@ -66,7 +69,6 @@ export default function Login({
   */
 
   const go = async () => {
-
     if (isBusy) {
       return;
     }
@@ -75,19 +77,15 @@ export default function Login({
       !email.trim() ||
       !password
     ) {
-
-      Alert.alert(
-        'Missing details',
-        'Please enter your email and password.'
+      showError(
+        'Missing Details',
+        'Please enter your registered email and password.'
       );
-
       return;
     }
 
     try {
-
       Keyboard.dismiss();
-
       setBusy(true);
 
       setAccessDisabled(false);
@@ -98,9 +96,7 @@ export default function Login({
         email.trim(),
         password
       );
-
     } catch (e) {
-
       const code =
         e.response?.data?.code;
 
@@ -108,26 +104,22 @@ export default function Login({
         code ===
         'ACCESS_DISABLED'
       ) {
-
+        hideFeedback();
         setAccessDisabled(true);
         setInactiveDoctor(
           e.response?.data?.doctor || null
         );
-
         return;
       }
 
-      Alert.alert(
-        'Login failed',
+      showError(
+        'Login Failed',
         e.response?.data?.message ||
           e.message ||
-          'Unable to login. Please try again.'
+          'Unable to sign in. Please verify your email and password.'
       );
-
     } finally {
-
       setBusy(false);
-
     }
   };
 
@@ -241,19 +233,21 @@ export default function Login({
         !email.trim() ||
         !password
       ) {
-        Alert.alert(
-          'Details required',
-          'Enter your email and password first.'
+        showError(
+          'Details Required',
+          'Please enter your email and password first.'
         );
-
         return;
       }
 
       try {
-
         Keyboard.dismiss();
-
         setBusy(true);
+
+        showLoading(
+          'Sending Access Request...',
+          'Submitting your access request to the administrator...'
+        );
 
         const result =
           await requestAccess(
@@ -274,19 +268,19 @@ export default function Login({
 
         setRequestSent(true);
 
-        Alert.alert(
-          'Request sent',
+        showSuccess(
+          'Request Submitted',
           result?.message ||
-            'Your access request has been sent to the administrator.'
+            'Your access request has been sent to the administrator. You will be notified once activated.'
         );
 
       } catch (error) {
 
-        Alert.alert(
-          'Request failed',
+        showError(
+          'Request Failed',
           error.response?.data?.message ||
             error.message ||
-            'Unable to send access request.'
+            'Unable to send access request. Please try again.'
         );
 
       } finally {

@@ -5,11 +5,20 @@ const API_URL = "https://veda-v3wh.onrender.com/api";
 
 export const api = axios.create({
   baseURL: API_URL,
-  timeout: 15000,
+  timeout: 120000, // 120 seconds to allow Render free instance to spin up from sleep
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+export const pingServer = async () => {
+  try {
+    await api.get('/app-version', { timeout: 35000 });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 api.interceptors.request.use(
   async (config) => {
@@ -64,6 +73,11 @@ api.interceptors.response.use(
       console.log('DATA:', error.response.data);
     } else {
       console.log('MESSAGE:', error.message);
+      if (error.code === 'ECONNABORTED' || error.message?.toLowerCase().includes('timeout')) {
+        error.message = 'The server is taking longer than expected to wake up. Please try again in a few moments.';
+      } else if (error.message?.toLowerCase().includes('network')) {
+        error.message = 'Unable to connect to server. Please check your internet connection or wait a moment for the cloud server to wake up.';
+      }
     }
 
     console.log('====================================');

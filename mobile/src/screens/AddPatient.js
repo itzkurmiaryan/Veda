@@ -22,8 +22,10 @@ import AccessRequiredModal from '../components/AccessRequiredModal';
 
 export default function AddPatient({ navigation }) {
   const {
-    startAction,
-    stopAction,
+    showLoading,
+    showSuccess,
+    showError,
+    hideFeedback,
     actionLoading,
   } = useAuth();
 
@@ -54,9 +56,9 @@ export default function AddPatient({ navigation }) {
     }
 
     if (!b.name.trim() || !b.age.trim()) {
-      Alert.alert(
-        'Required',
-        'Name and age are required.'
+      showError(
+        'Required Fields',
+        'Please provide both Patient Name and Age.'
       );
       return;
     }
@@ -64,9 +66,9 @@ export default function AddPatient({ navigation }) {
     try {
       setBusy(true);
 
-      startAction(
-        'Creating patient record...',
-        'Saving the patient information securely.'
+      showLoading(
+        'Creating Patient Record...',
+        'Saving patient details in cloud database...'
       );
 
       const r = await api.post('/patients', {
@@ -78,39 +80,40 @@ export default function AddPatient({ navigation }) {
         address: b.address.trim(),
       });
 
-      startAction(
-        'Patient created successfully...',
-        'Opening the new patient record.'
-      );
+      const newId = r.data?.data?._id;
+      const patientIdTag = r.data?.data?.patientId || '';
 
-      await new Promise((resolve) =>
-        setTimeout(resolve, 450)
-      );
-
-      navigation.replace(
-        'PatientDetail',
-        {
-          id: r.data.data._id,
-        }
+      showSuccess(
+        'Patient Created Successfully!',
+        `${b.name.trim()} is now registered${patientIdTag ? ` with ID ${patientIdTag}` : ''}.`,
+        () => {
+          navigation.replace(
+            'PatientDetail',
+            {
+              id: newId,
+            }
+          );
+        },
+        'VIEW PATIENT'
       );
     } catch (e) {
       if (
         e.response?.data?.code ===
         'ACCESS_DISABLED'
       ) {
+        hideFeedback();
         setAccessPromptVisible(true);
         return;
       }
 
-      Alert.alert(
-        'Unable to create patient',
+      showError(
+        'Unable to Create Patient',
         e.response?.data?.message ||
           e.message ||
-          'Something went wrong.'
+          'Failed to save patient. Please check server connection.'
       );
     } finally {
       setBusy(false);
-      stopAction();
     }
   };
 

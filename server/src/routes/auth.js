@@ -677,23 +677,15 @@ router.post(
 
       /*
       |--------------------------------------------------------------------------
-      | Prevent duplicate pending payment
+      | Track whether doctor is updating an already pending payment
       |--------------------------------------------------------------------------
       */
 
-      if (
+      const isUpdatingPending = Boolean(
         doctor.pendingPayment &&
         doctor.pendingPayment.status ===
           'pending'
-      ) {
-        return res.status(409).json({
-          success: false,
-          message:
-            'A payment is already waiting for admin verification.',
-          pendingPayment:
-            true,
-        });
-      }
+      );
 
       const body =
         req.body || {};
@@ -924,8 +916,9 @@ router.post(
 
       return res.status(201).json({
         success: true,
-        message:
-          'Payment submitted successfully. Please wait for administrator verification.',
+        message: isUpdatingPending
+          ? 'Payment details updated successfully. Please wait for administrator verification.'
+          : 'Payment submitted successfully. Please wait for administrator verification.',
         pendingPayment: {
           amount:
             doctor.pendingPayment.amount,

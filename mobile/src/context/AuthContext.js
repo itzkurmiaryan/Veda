@@ -53,28 +53,97 @@ export function AuthProvider({
     useState('');
 
 
+  /*
+   * Unified Feedback & Pop-up Modal State
+   */
+  const [feedback, setFeedback] = useState({
+    visible: false,
+    type: 'loading', // 'loading' | 'success' | 'error'
+    title: '',
+    message: '',
+    subMessage: '',
+    confirmText: 'OK',
+    onConfirm: null,
+  });
+
+  const showLoading = (
+    title = 'Processing...',
+    message = 'Please wait while connecting to Veda server...'
+  ) => {
+    setActionLoading(true);
+    setActionMessage(title);
+    setActionSubMessage(message);
+    setFeedback({
+      visible: true,
+      type: 'loading',
+      title,
+      message,
+      subMessage: '',
+      confirmText: 'OK',
+      onConfirm: null,
+    });
+  };
+
+  const showSuccess = (
+    title = 'Success!',
+    message = '',
+    onConfirm = null,
+    confirmText = 'CONTINUE'
+  ) => {
+    setActionLoading(false);
+    setFeedback({
+      visible: true,
+      type: 'success',
+      title,
+      message,
+      subMessage: '',
+      confirmText,
+      onConfirm: () => {
+        setFeedback((prev) => ({ ...prev, visible: false }));
+        if (onConfirm) onConfirm();
+      },
+    });
+  };
+
+  const showError = (
+    title = 'Request Failed',
+    message = 'Something went wrong. Please try again.',
+    onConfirm = null,
+    confirmText = 'OK'
+  ) => {
+    setActionLoading(false);
+    setFeedback({
+      visible: true,
+      type: 'error',
+      title,
+      message,
+      subMessage: '',
+      confirmText,
+      onConfirm: () => {
+        setFeedback((prev) => ({ ...prev, visible: false }));
+        if (onConfirm) onConfirm();
+      },
+    });
+  };
+
+  const hideFeedback = () => {
+    setActionLoading(false);
+    setFeedback((prev) => ({ ...prev, visible: false }));
+  };
+
   // =================================================
-  // GLOBAL ACTION LOADER
+  // GLOBAL ACTION LOADER (BRIDGED TO FEEDBACK MODAL)
   // =================================================
 
   const startAction = (
     message = 'Please wait...',
     subMessage = 'Veda is processing your request.'
   ) => {
-
-    setActionMessage(message);
-    setActionSubMessage(subMessage);
-    setActionLoading(true);
-
+    showLoading(message, subMessage);
   };
 
-
   const stopAction = () => {
-
-    setActionLoading(false);
-    setActionMessage('');
-    setActionSubMessage('');
-
+    hideFeedback();
   };
 
 
@@ -270,38 +339,25 @@ export function AuthProvider({
       }
 
 
-      setActionMessage(
-        'Preparing your workspace...'
+      showSuccess(
+        'Login Successful!',
+        `Welcome, ${data.doctor?.name ? 'Dr. ' + data.doctor.name : (data.user?.name || 'Doctor')}! Opening your dashboard...`
       );
-
-      setActionSubMessage(
-        'Almost there. Your Veda dashboard is getting ready.'
-      );
-
-
-      setToken(data.token);
-      setRole(data.role);
-
-
-      /*
-       * Small delay gives the user a smooth
-       * transition instead of an instant jump.
-       */
 
       await new Promise(
         (resolve) =>
-          setTimeout(resolve, 500)
+          setTimeout(resolve, 750)
       );
 
-
-      stopAction();
-
+      setToken(data.token);
+      setRole(data.role);
+      hideFeedback();
 
       return data;
 
     } catch (error) {
 
-      stopAction();
+      hideFeedback();
 
       throw error;
 
@@ -569,6 +625,12 @@ export function AuthProvider({
         actionLoading,
         actionMessage,
         actionSubMessage,
+
+        feedback,
+        showLoading,
+        showSuccess,
+        showError,
+        hideFeedback,
 
         startAction,
         stopAction,

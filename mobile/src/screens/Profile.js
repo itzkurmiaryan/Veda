@@ -22,6 +22,7 @@ import {
   colors,
 } from '../components/UI';
 
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../api/api';
 
@@ -197,6 +198,7 @@ const pickClinicImage = async ({
 // ======================================================
 
 export default function Profile() {
+  const navigation = useNavigation();
   const {
     doctor,
     role,
@@ -956,6 +958,107 @@ export default function Profile() {
               )}
 
             </Card>
+
+
+            {/* ---------------------------------------------
+                SUBSCRIPTION & BILLING CARD
+            ---------------------------------------------- */}
+
+            {role !== 'admin' && (
+              <Card accent>
+                <View style={styles.sectionHeader}>
+                  <View>
+                    <Text style={styles.sectionEyebrow}>
+                      SUBSCRIPTION & BILLING
+                    </Text>
+                    <Text style={styles.sectionTitle}>
+                      Practice Access & Payments
+                    </Text>
+                  </View>
+
+                  <View style={styles.sectionSymbol}>
+                    <Text style={styles.sectionSymbolText}>₹</Text>
+                  </View>
+                </View>
+
+                <View style={styles.billingOverviewRow}>
+                  <View style={styles.billingStatusBox}>
+                    <Text style={styles.infoLabel}>STATUS</Text>
+                    <View style={styles.billingStatusBadge}>
+                      <View
+                        style={[
+                          styles.billingStatusDot,
+                          doctor?.pendingPayment?.status === 'pending'
+                            ? styles.billingStatusDotPending
+                            : doctor?.active !== false && doctor?.paymentStatus === 'paid'
+                              ? styles.billingStatusDotActive
+                              : styles.billingStatusDotDue,
+                        ]}
+                      />
+                      <Text
+                        style={[
+                          styles.billingStatusText,
+                          doctor?.pendingPayment?.status === 'pending'
+                            ? styles.billingStatusTextPending
+                            : doctor?.active !== false && doctor?.paymentStatus === 'paid'
+                              ? styles.billingStatusTextActive
+                              : styles.billingStatusTextDue,
+                        ]}
+                      >
+                        {doctor?.pendingPayment?.status === 'pending'
+                          ? 'Verification Pending'
+                          : doctor?.active !== false && doctor?.paymentStatus === 'paid'
+                            ? 'Access Active & Paid'
+                            : 'Payment Due'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {doctor?.nextPaymentDate ? (
+                    <View style={styles.billingDueBox}>
+                      <Text style={styles.infoLabel}>NEXT PAYMENT</Text>
+                      <Text style={styles.billingDueValue}>
+                        {new Date(doctor.nextPaymentDate).toLocaleDateString('en-IN', {
+                          day: '2-digit',
+                          month: 'short',
+                          year: 'numeric',
+                        })}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                <View style={styles.billingActionsRow}>
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate('PaymentDetails', { openForm: true })
+                    }
+                    style={({ pressed }) => [
+                      styles.makePaymentActionBtn,
+                      pressed && styles.primaryActionPressed,
+                    ]}
+                  >
+                    <Text style={styles.makePaymentBtnIcon}>₹</Text>
+                    <Text style={styles.makePaymentBtnText}>
+                      Make a Payment
+                    </Text>
+                    <Text style={styles.primaryActionArrow}>→</Text>
+                  </Pressable>
+
+                  <Pressable
+                    onPress={() => navigation.navigate('PaymentDetails')}
+                    style={({ pressed }) => [
+                      styles.viewBillingActionBtn,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Text style={styles.viewBillingBtnText}>
+                      View Payment Details
+                    </Text>
+                  </Pressable>
+                </View>
+              </Card>
+            )}
 
 
             {/* ---------------------------------------------
@@ -1781,6 +1884,119 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: '800',
     letterSpacing: 1,
+  },
+
+  /* BILLING CARD */
+  billingOverviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    padding: 14,
+    marginBottom: 14,
+  },
+
+  billingStatusBox: {
+    flex: 1,
+  },
+
+  billingStatusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 5,
+  },
+
+  billingStatusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 6,
+  },
+
+  billingStatusDotActive: {
+    backgroundColor: '#10B981',
+  },
+
+  billingStatusDotPending: {
+    backgroundColor: '#F59E0B',
+  },
+
+  billingStatusDotDue: {
+    backgroundColor: '#EF4444',
+  },
+
+  billingStatusText: {
+    fontSize: 12,
+    fontWeight: '900',
+  },
+
+  billingStatusTextActive: {
+    color: '#059669',
+  },
+
+  billingStatusTextPending: {
+    color: '#D97706',
+  },
+
+  billingStatusTextDue: {
+    color: '#DC2626',
+  },
+
+  billingDueBox: {
+    alignItems: 'flex-end',
+  },
+
+  billingDueValue: {
+    color: colors.ink,
+    fontSize: 12,
+    fontWeight: '900',
+    marginTop: 5,
+  },
+
+  billingActionsRow: {
+    gap: 9,
+  },
+
+  makePaymentActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.blue,
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+  },
+
+  makePaymentBtnIcon: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '900',
+  },
+
+  makePaymentBtnText: {
+    flex: 1,
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '900',
+    letterSpacing: 0.2,
+    marginLeft: 8,
+  },
+
+  viewBillingActionBtn: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EEF5FF',
+    borderRadius: 12,
+    paddingVertical: 10,
+  },
+
+  viewBillingBtnText: {
+    color: colors.blue,
+    fontSize: 11,
+    fontWeight: '800',
   },
 
 });

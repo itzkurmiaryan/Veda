@@ -21,7 +21,7 @@ import { useAuth } from '../context/AuthContext';
 export default function Register({
   navigation,
 }) {
-  const { register } = useAuth();
+  const { register, showLoading, showSuccess, showError } = useAuth();
 
   const [b, setB] =
     useState({
@@ -47,33 +47,38 @@ export default function Register({
   };
 
   const go = async () => {
+    if (!b.name.trim() || !b.email.trim() || !b.password) {
+      showError(
+        'Missing Details',
+        'Please provide at least your Full Name, Email, and Password.'
+      );
+      return;
+    }
+
     try {
       Keyboard.dismiss();
-
       setBusy(true);
+
+      showLoading(
+        'Submitting Registration...',
+        'Sending your doctor account details to Veda cloud...'
+      );
 
       const result =
         await register(b);
 
-      Alert.alert(
-        'Request submitted',
-        result.message,
-        [
-          {
-            text: 'Go to login',
-            onPress: () =>
-              navigation.navigate(
-                'Login'
-              ),
-          },
-        ]
+      showSuccess(
+        'Registration Submitted!',
+        result?.message || 'Your account has been submitted for admin approval. You can log in once verified.',
+        () => navigation.navigate('Login'),
+        'GO TO LOGIN'
       );
     } catch (e) {
-      Alert.alert(
-        'Registration failed',
+      showError(
+        'Registration Failed',
         e.response?.data?.message ||
           e.message ||
-          'Unable to submit registration.'
+          'Unable to submit registration. Please try again.'
       );
     } finally {
       setBusy(false);

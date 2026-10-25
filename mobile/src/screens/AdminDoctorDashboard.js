@@ -2412,6 +2412,11 @@ export default function AdminDoctorDashboard({
 
             <PaymentSummaryCard
               doctor={doctor}
+              onPress={() =>
+                setPaymentHistoryOpen(
+                  true
+                )
+              }
               onHistory={() =>
                 setPaymentHistoryOpen(
                   true

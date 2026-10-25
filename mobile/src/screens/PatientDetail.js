@@ -1,115 +1,55 @@
-import React, {
-  useCallback,
-  useState,
-} from 'react';
-
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View,
+  useWindowDimensions,
 } from 'react-native';
-
 import { useFocusEffect } from '@react-navigation/native';
 
 import { api } from '../api/api';
+import { useAuth } from '../context/AuthContext';
+import AppHeader from '../components/AppHeader';
+import { Loading } from '../components/UI';
 
-import {
-  Button,
-  Card,
-  Loading,
-  Screen,
-  colors,
-} from '../components/UI';
+export default function PatientDetail({ route, navigation }) {
+  const { showLoading, showSuccess, showError } = useAuth();
+  const { width } = useWindowDimensions();
+  const isTabletOrDesktop = width >= 768;
 
-export default function PatientDetail({
-  route,
-  navigation,
-}) {
   const id = route?.params?.id;
 
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
-  const [showDeleteConfirm, setShowDeleteConfirm] =
-    useState(false);
+  const loadPatient = useCallback(async () => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
 
-  const [deleting, setDeleting] =
-    useState(false);
-
-  const [deleteError, setDeleteError] =
-    useState('');
-
-  /*
-  |--------------------------------------------------------------------------
-  | LOAD PATIENT
-  |--------------------------------------------------------------------------
-  */
-
-  const loadPatient = useCallback(
-    async () => {
-      if (!id) {
-        console.log(
-          '❌ PatientDetail: Patient ID missing'
-        );
-
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-
-        console.log(
-          '📥 Loading patient:',
-          id
-        );
-
-        const response =
-          await api.get(
-            `/patients/${id}`
-          );
-
-        console.log(
-          '📥 Patient loaded:',
-          response.data
-        );
-
-        setData(
-          response.data?.data
-        );
-      } catch (error) {
-        console.log(
-          '❌ LOAD PATIENT ERROR'
-        );
-
-        console.log(
-          'STATUS:',
-          error.response?.status
-        );
-
-        console.log(
-          'DATA:',
-          error.response?.data
-        );
-
-        console.log(
-          'MESSAGE:',
-          error.message
-        );
-
-        setDeleteError(
-          error.response?.data?.message ||
-            error.message ||
-            'Unable to load patient.'
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [id]
-  );
+    try {
+      setLoading(true);
+      const response = await api.get(`/patients/${id}`);
+      setData(response.data?.data);
+    } catch (error) {
+      setDeleteError(
+        error.response?.data?.message ||
+          error.message ||
+          'Unable to load patient record.'
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, [id]);
 
   useFocusEffect(
     useCallback(() => {
@@ -117,786 +57,825 @@ export default function PatientDetail({
     }, [loadPatient])
   );
 
-  /*
-  |--------------------------------------------------------------------------
-  | OPEN DELETE CONFIRMATION
-  |--------------------------------------------------------------------------
-  */
-
-  const handleDeleteButton = () => {
-    console.log('');
-    console.log(
-      '🟢 DELETE BUTTON HANDLER RUNNING'
-    );
-
-    console.log(
-      '🆔 Patient ID:',
-      id
-    );
-
-    setDeleteError('');
-
-    setShowDeleteConfirm(true);
-
-    console.log(
-      '✅ Inline delete confirmation opened'
-    );
-  };
-
-  /*
-  |--------------------------------------------------------------------------
-  | CANCEL DELETE
-  |--------------------------------------------------------------------------
-  */
-
-  const cancelDelete = () => {
-    console.log(
-      '❌ Delete cancelled'
-    );
-
-    setShowDeleteConfirm(false);
-    setDeleteError('');
-  };
-
-  /*
-  |--------------------------------------------------------------------------
-  | ACTUAL DELETE REQUEST
-  |--------------------------------------------------------------------------
-  */
-
   const deletePatient = async () => {
-    console.log('');
-    console.log(
-      '🔥🔥🔥 ACTUAL DELETE STARTED 🔥🔥🔥'
-    );
-
-    console.log(
-      '🆔 Patient ID:',
-      id
-    );
-
-    if (!id) {
-      console.log(
-        '❌ DELETE STOPPED: Missing patient ID'
-      );
-
-      setDeleteError(
-        'Patient ID is missing.'
-      );
-
-      return;
-    }
-
-    if (deleting) {
-      console.log(
-        '⚠️ Delete already in progress'
-      );
-
-      return;
-    }
+    if (!id || deleting) return;
 
     try {
       setDeleting(true);
       setDeleteError('');
 
-      console.log(
-        '➡️ Sending DELETE request...'
+      showLoading(
+        'Deleting Patient Record...',
+        'Removing patient and associated medical records from cloud database...'
       );
 
-      console.log(
-        '➡️ DELETE URL:',
-        `/patients/${id}`
-      );
+      await api.delete(`/patients/${id}`);
 
-      const response =
-        await api.delete(
-          `/patients/${id}`
-        );
-
-      console.log(
-        '✅✅✅ DELETE SUCCESS ✅✅✅'
-      );
-
-      console.log(
-        '📦 DELETE RESPONSE:',
-        response.data
-      );
-
-      /*
-      |--------------------------------------------------------------------------
-      | Go back to Patients
-      |--------------------------------------------------------------------------
-      */
-
-      console.log(
-        '➡️ Navigating to Patients screen'
-      );
-
-      navigation.replace(
-        'Patients'
+      showSuccess(
+        'Patient Deleted',
+        'Patient record and history have been removed.',
+        () => {
+          navigation.replace('Patients');
+        },
+        'DONE'
       );
     } catch (error) {
-      console.log('');
-      console.log(
-        '❌❌❌ DELETE FAILED ❌❌❌'
-      );
-
-      console.log(
-        'STATUS:',
-        error.response?.status
-      );
-
-      console.log(
-        'DATA:',
-        error.response?.data
-      );
-
-      console.log(
-        'MESSAGE:',
-        error.message
-      );
-
-      setDeleteError(
+      const errMsg =
         error.response?.data?.message ||
-          error.message ||
-          'Unable to delete patient.'
-      );
+        error.message ||
+        'Unable to delete patient.';
+
+      setDeleteError(errMsg);
+      showError('Delete Failed', errMsg);
     } finally {
       setDeleting(false);
     }
   };
 
-  /*
-  |--------------------------------------------------------------------------
-  | LOADING
-  |--------------------------------------------------------------------------
-  */
+  const handleCall = (mobile) => {
+    if (!mobile) return;
+    const cleanNumber = mobile.replace(/[^0-9+]/g, '');
+    Linking.openURL(`tel:${cleanNumber}`);
+  };
 
   if (loading) {
-    return <Loading />;
+    return (
+      <View style={styles.centerContainer}>
+        <Loading />
+      </View>
+    );
   }
-
-  /*
-  |--------------------------------------------------------------------------
-  | PATIENT NOT FOUND
-  |--------------------------------------------------------------------------
-  */
 
   if (!data?.patient) {
     return (
-      <Screen scroll>
-        <Card>
-          <Text style={styles.errorTitle}>
-            Patient not found
+      <View style={styles.container}>
+        <AppHeader title="Patient Record" navigation={navigation} />
+        <View style={styles.notFoundBox}>
+          <Text style={styles.notFoundIcon}>⚠️</Text>
+          <Text style={styles.notFoundTitle}>Patient Not Found</Text>
+          <Text style={styles.notFoundSubtitle}>
+            {deleteError || 'This patient record does not exist or was removed.'}
           </Text>
-
-          <Text style={styles.errorText}>
-            The patient record could not
-            be loaded.
-          </Text>
-
-          <Button
-            title="GO BACK"
-            secondary
-            onPress={() =>
-              navigation.goBack()
-            }
-          />
-        </Card>
-      </Screen>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backBtnText}>GO BACK</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   }
 
   const patient = data.patient;
   const visits = data.visits || [];
-
-  /*
-  |--------------------------------------------------------------------------
-  | SCREEN
-  |--------------------------------------------------------------------------
-  */
+  const initial = (patient.name || 'P').charAt(0).toUpperCase();
 
   return (
-    <Screen scroll>
-      <View style={styles.header}>
-        <Text style={styles.eyebrow}>
-          PATIENT RECORD
-        </Text>
+    <View style={styles.container}>
+      <AppHeader title="Patient Profile" navigation={navigation} />
 
-        <Text style={styles.title}>
-          {patient.name}
-        </Text>
-
-        <Text style={styles.patientId}>
-          {patient.patientId}
-        </Text>
-      </View>
-
-      {/* PATIENT INFORMATION */}
-
-      <Card accent>
-        <Text style={styles.sectionTitle}>
-          Patient Information
-        </Text>
-
-        <InfoRow
-          label="Name"
-          value={patient.name}
-        />
-
-        <InfoRow
-          label="Patient ID"
-          value={patient.patientId}
-        />
-
-        <InfoRow
-          label="Mobile"
-          value={
-            patient.mobile || '—'
-          }
-        />
-
-        <InfoRow
-          label="Age"
-          value={`${patient.age} years`}
-        />
-
-        <InfoRow
-          label="Gender"
-          value={patient.gender}
-        />
-
-        <InfoRow
-          label="Address"
-          value={
-            patient.address || '—'
-          }
-        />
-      </Card>
-
-      {/* PRESCRIPTION HISTORY */}
-
-      <Card>
-        <View
-          style={styles.sectionHeader}
-        >
-          <Text style={styles.sectionTitle}>
-            Prescription History
-          </Text>
-
-          <Text style={styles.count}>
-            {visits.length}
-          </Text>
-        </View>
-
-        {visits.length === 0 ? (
-          <Text style={styles.empty}>
-            No prescriptions found.
-          </Text>
-        ) : (
-          visits.map(
-            (visit, index) => (
-              <View
-                key={
-                  visit._id ||
-                  `visit-${index}`
-                }
-                style={styles.visit}
-              >
-                <Text
-                  style={
-                    styles.visitDate
-                  }
-                >
-                  {formatDate(
-                    visit.visitDate
-                  )}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isTabletOrDesktop && styles.scrollContentTablet,
+        ]}
+      >
+        <View style={[styles.mainInner, isTabletOrDesktop && styles.mainInnerTablet]}>
+          {/* PATIENT PROFILE HERO CARD */}
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initial}</Text>
+              </View>
+              <View style={styles.heroInfo}>
+                <View style={styles.heroNameRow}>
+                  <Text style={styles.heroName}>{patient.name}</Text>
+                  <View style={styles.idBadge}>
+                    <Text style={styles.idBadgeText}>
+                      {patient.patientId || 'PT-ID'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={styles.heroMeta}>
+                  {patient.age ? `${patient.age} Years • ` : ''}
+                  {patient.gender || ''}
                 </Text>
-
-                {Array.isArray(
-                  visit.diagnosis
-                ) &&
-                visit.diagnosis.length >
-                  0 ? (
-                  <Text
-                    style={
-                      styles.diagnosis
-                    }
-                  >
-                    Diagnosis:{' '}
-                    {visit.diagnosis.join(
-                      ', '
-                    )}
-                  </Text>
-                ) : null}
-
-                {Array.isArray(
-                  visit.medicines
-                ) &&
-                visit.medicines.length >
-                  0 ? (
-                  <Text
-                    style={
-                      styles.medicine
-                    }
-                  >
-                    Medicines:{' '}
-                    {visit.medicines
-                      .map(
-                        (medicine) =>
-                          medicine.name
-                      )
-                      .join(', ')}
-                  </Text>
-                ) : null}
-
-                <Button
-                  title="VIEW PRESCRIPTION"
-                  secondary
-                  onPress={() =>
-                    navigation.navigate(
-                      'VisitDetail',
-                      {
-                        id: visit._id,
-                      }
-                    )
-                  }
-                />
-              </View>
-            )
-          )
-        )}
-      </Card>
-
-      {/* ACTIONS */}
-
-      <Card>
-        <Text style={styles.sectionTitle}>
-          Actions
-        </Text>
-
-        <Button
-          title="NEW VISIT / PRESCRIPTION"
-          onPress={() =>
-            navigation.navigate(
-              'CreateVisit',
-              {
-                patient,
-              }
-            )
-          }
-        />
-      </Card>
-
-      {/* DANGER ZONE */}
-
-      <Card>
-        <Text style={styles.dangerTitle}>
-          Danger Zone
-        </Text>
-
-        <Text style={styles.deleteDescription}>
-          Permanently delete this patient
-          and all prescriptions associated
-          with this patient.
-        </Text>
-
-        {!showDeleteConfirm ? (
-          <Button
-            title="DELETE PATIENT & PRESCRIPTIONS"
-            danger
-            disabled={deleting}
-            onPress={
-              handleDeleteButton
-            }
-          />
-        ) : (
-          <View
-            style={
-              styles.confirmBox
-            }
-          >
-            <Text
-              style={
-                styles.confirmTitle
-              }
-            >
-              Confirm permanent deletion
-            </Text>
-
-            <Text
-              style={
-                styles.confirmText
-              }
-            >
-              This will permanently delete:
-            </Text>
-
-            <Text
-              style={
-                styles.confirmItem
-              }
-            >
-              • Patient: {patient.name}
-            </Text>
-
-            <Text
-              style={
-                styles.confirmItem
-              }
-            >
-              • Patient ID:{' '}
-              {patient.patientId}
-            </Text>
-
-            <Text
-              style={
-                styles.confirmItem
-              }
-            >
-              • Prescriptions:{' '}
-              {visits.length}
-            </Text>
-
-            <View
-              style={
-                styles.confirmButtons
-              }
-            >
-              <View
-                style={
-                  styles.buttonHalf
-                }
-              >
-                <Button
-                  title="CANCEL"
-                  secondary
-                  disabled={deleting}
-                  onPress={
-                    cancelDelete
-                  }
-                />
-              </View>
-
-              <View
-                style={
-                  styles.buttonHalf
-                }
-              >
-                <Button
-                  title={
-                    deleting
-                      ? 'DELETING...'
-                      : 'YES, DELETE'
-                  }
-                  danger
-                  disabled={deleting}
-                  onPress={
-                    deletePatient
-                  }
-                />
               </View>
             </View>
 
-            {deleting ? (
-              <View
-                style={
-                  styles.loadingBox
-                }
-              >
-                <ActivityIndicator
-                  size="small"
-                  color={
-                    colors.danger
-                  }
-                />
-
-                <Text
-                  style={
-                    styles.loadingText
-                  }
+            {/* QUICK CONTACT / VITALS ROW */}
+            <View style={styles.quickInfoRow}>
+              {patient.mobile ? (
+                <TouchableOpacity
+                  style={styles.quickInfoItem}
+                  onPress={() => handleCall(patient.mobile)}
                 >
-                  Deleting patient and
-                  prescriptions...
-                </Text>
+                  <Text style={styles.quickInfoLabel}>MOBILE</Text>
+                  <Text style={styles.quickInfoValueBlue}>
+                    📞 {patient.mobile}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
+
+              <View style={styles.quickInfoItem}>
+                <Text style={styles.quickInfoLabel}>PRESCRIPTIONS</Text>
+                <Text style={styles.quickInfoValue}>{visits.length} Visits</Text>
               </View>
-            ) : null}
-          </View>
-        )}
 
-        {deleteError ? (
-          <View
-            style={
-              styles.errorBox
-            }
-          >
-            <Text
-              style={
-                styles.errorBoxTitle
+              {patient.address ? (
+                <View style={[styles.quickInfoItem, { flex: 1.5 }]}>
+                  <Text style={styles.quickInfoLabel}>LOCATION</Text>
+                  <Text style={styles.quickInfoValue} numberOfLines={1}>
+                    {patient.address}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            {/* PRIMARY CALL-TO-ACTION */}
+            <TouchableOpacity
+              style={styles.newRxBtn}
+              onPress={() =>
+                navigation.navigate('CreateVisit', {
+                  patient,
+                })
               }
+              activeOpacity={0.85}
             >
-              Delete failed
+              <Text style={styles.newRxBtnText}>
+                ⚡ WRITE NEW PRESCRIPTION
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* PRESCRIPTION HISTORY SECTION */}
+          <View style={styles.sectionCard}>
+            <View style={styles.sectionHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                <Text style={styles.sectionIcon}>📑</Text>
+                <Text style={styles.sectionTitle}>Prescription History</Text>
+              </View>
+              <View style={styles.countBadge}>
+                <Text style={styles.countBadgeText}>{visits.length}</Text>
+              </View>
+            </View>
+
+            {visits.length === 0 ? (
+              <View style={styles.emptyHistoryBox}>
+                <Text style={styles.emptyHistoryIcon}>📝</Text>
+                <Text style={styles.emptyHistoryTitle}>
+                  No prescriptions recorded yet
+                </Text>
+                <Text style={styles.emptyHistoryText}>
+                  Create the patient's first clinical prescription with medicines, vitals, and advice.
+                </Text>
+                <TouchableOpacity
+                  style={styles.firstRxBtn}
+                  onPress={() =>
+                    navigation.navigate('CreateVisit', {
+                      patient,
+                    })
+                  }
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.firstRxBtnText}>
+                    ＋ WRITE FIRST PRESCRIPTION
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            ) : (
+              <View style={isTabletOrDesktop ? styles.visitsGrid : undefined}>
+                {visits.map((visit, index) => {
+                  const medCount = visit.medicines?.length || 0;
+                  return (
+                    <View
+                      key={visit._id || index}
+                      style={[
+                        styles.visitCard,
+                        isTabletOrDesktop && styles.visitCardTablet,
+                      ]}
+                    >
+                      {/* VISIT CARD HEADER */}
+                      <View style={styles.visitHeader}>
+                        <View style={styles.dateBadge}>
+                          <Text style={styles.dateBadgeText}>
+                            🗓️ {formatDate(visit.visitDate)}
+                          </Text>
+                        </View>
+                        <View style={styles.medCountBadge}>
+                          <Text style={styles.medCountText}>
+                            💊 {medCount} {medCount === 1 ? 'Med' : 'Meds'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      {/* DIAGNOSIS */}
+                      {Array.isArray(visit.diagnosis) && visit.diagnosis.length > 0 ? (
+                        <View style={styles.diagRow}>
+                          <Text style={styles.diagLabel}>Diagnosis:</Text>
+                          <View style={styles.chipsWrap}>
+                            {visit.diagnosis.map((d, di) => (
+                              <View key={di} style={styles.diagChip}>
+                                <Text style={styles.diagChipText}>{d}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        </View>
+                      ) : null}
+
+                      {/* MEDICINES SUMMARY */}
+                      {Array.isArray(visit.medicines) && visit.medicines.length > 0 ? (
+                        <View style={styles.medsSummaryBox}>
+                          <Text style={styles.medsSummaryText} numberOfLines={2}>
+                            {visit.medicines
+                              .map((m) => `${m.preparation ? m.preparation + '. ' : ''}${m.name} ${m.strength || ''}`)
+                              .join(', ')}
+                          </Text>
+                        </View>
+                      ) : null}
+
+                      {/* ACTIONS */}
+                      <View style={styles.visitActionsRow}>
+                        <TouchableOpacity
+                          style={styles.viewRxBtn}
+                          onPress={() =>
+                            navigation.navigate('VisitDetail', {
+                              id: visit._id,
+                            })
+                          }
+                          activeOpacity={0.85}
+                        >
+                          <Text style={styles.viewRxBtnText}>VIEW PRESCRIPTION</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.editRxBtn}
+                          onPress={() =>
+                            navigation.navigate('EditVisit', {
+                              visit,
+                            })
+                          }
+                          activeOpacity={0.85}
+                        >
+                          <Text style={styles.editRxBtnText}>✏️ EDIT</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </View>
+
+          {/* DANGER ZONE */}
+          <View style={styles.dangerCard}>
+            <Text style={styles.dangerTitle}>Patient Record Options</Text>
+            <Text style={styles.dangerSubtitle}>
+              Delete this patient and their complete clinical prescription records.
             </Text>
 
-            <Text
-              style={
-                styles.errorBoxText
-              }
-            >
-              {deleteError}
-            </Text>
+            {!showDeleteConfirm ? (
+              <TouchableOpacity
+                style={styles.deleteOutlineBtn}
+                onPress={() => setShowDeleteConfirm(true)}
+              >
+                <Text style={styles.deleteOutlineBtnText}>
+                  🗑️ DELETE PATIENT RECORD
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.confirmBox}>
+                <Text style={styles.confirmTitle}>
+                  Confirm Permanent Deletion
+                </Text>
+                <Text style={styles.confirmText}>
+                  Are you sure you want to delete {patient.name} ({patient.patientId})? This cannot be undone.
+                </Text>
+
+                {deleteError ? (
+                  <Text style={styles.deleteErrorText}>{deleteError}</Text>
+                ) : null}
+
+                <View style={styles.confirmButtonsRow}>
+                  <TouchableOpacity
+                    style={styles.cancelBtn}
+                    onPress={() => {
+                      setShowDeleteConfirm(false);
+                      setDeleteError('');
+                    }}
+                    disabled={deleting}
+                  >
+                    <Text style={styles.cancelBtnText}>CANCEL</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.confirmDeleteBtn}
+                    onPress={deletePatient}
+                    disabled={deleting}
+                  >
+                    {deleting ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={styles.confirmDeleteBtnText}>
+                        YES, DELETE
+                      </Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
           </View>
-        ) : null}
-      </Card>
-    </Screen>
-  );
-}
-
-/*
-|--------------------------------------------------------------------------
-| INFO ROW
-|--------------------------------------------------------------------------
-*/
-
-function InfoRow({
-  label,
-  value,
-}) {
-  return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>
-        {label}
-      </Text>
-
-      <Text style={styles.infoValue}>
-        {value}
-      </Text>
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
-/*
-|--------------------------------------------------------------------------
-| DATE FORMAT
-|--------------------------------------------------------------------------
-*/
-
 function formatDate(value) {
-  if (!value) {
-    return 'Unknown date';
-  }
-
+  if (!value) return 'Unknown date';
   try {
-    return new Date(
-      value
-    ).toLocaleDateString(
-      'en-IN',
-      {
-        day: '2-digit',
-        month: 'short',
-        year: 'numeric',
-      }
-    );
+    return new Date(value).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
   } catch {
     return String(value);
   }
 }
 
-/*
-|--------------------------------------------------------------------------
-| STYLES
-|--------------------------------------------------------------------------
-*/
-
 const styles = StyleSheet.create({
-  header: {
-    marginBottom: 18,
+  container: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
   },
-
-  eyebrow: {
-    color: colors.blue,
-    fontSize: 11,
-    fontWeight: '900',
-    letterSpacing: 1.2,
-    marginBottom: 5,
-  },
-
-  title: {
-    color: colors.ink,
-    fontSize: 30,
-    fontWeight: '900',
-  },
-
-  patientId: {
-    color: colors.muted,
-    fontSize: 13,
-    marginTop: 4,
-  },
-
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  centerContainer: {
+    flex: 1,
     alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F1F5F9',
   },
-
-  sectionTitle: {
-    color: colors.ink,
-    fontSize: 18,
-    fontWeight: '900',
-    marginBottom: 10,
-  },
-
-  count: {
-    backgroundColor: '#E8F1FF',
-    color: colors.blue,
-    minWidth: 32,
-    textAlign: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    borderRadius: 20,
-    fontWeight: '900',
-  },
-
-  infoRow: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.line,
-    paddingVertical: 11,
-  },
-
-  infoLabel: {
-    color: colors.muted,
-    fontSize: 11,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    marginBottom: 4,
-  },
-
-  infoValue: {
-    color: colors.ink,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-
-  visit: {
-    borderTopWidth: 1,
-    borderTopColor: colors.line,
-    paddingTop: 14,
-    marginTop: 10,
-  },
-
-  visitDate: {
-    color: colors.blue,
-    fontSize: 15,
-    fontWeight: '900',
-  },
-
-  diagnosis: {
-    color: colors.ink,
-    marginTop: 7,
-    lineHeight: 21,
-  },
-
-  medicine: {
-    color: colors.muted,
-    marginTop: 5,
-    lineHeight: 21,
-  },
-
-  empty: {
-    color: colors.muted,
-    paddingVertical: 15,
-  },
-
-  dangerTitle: {
-    color: colors.danger,
-    fontSize: 19,
-    fontWeight: '900',
-    marginBottom: 7,
-  },
-
-  deleteDescription: {
-    color: colors.muted,
-    lineHeight: 21,
-    marginBottom: 10,
-  },
-
-  confirmBox: {
-    backgroundColor: '#FFF7F8',
-    borderWidth: 1,
-    borderColor: '#F4C5CD',
-    borderRadius: 16,
+  scrollContent: {
     padding: 16,
-    marginTop: 8,
+    paddingBottom: 40,
   },
-
-  confirmTitle: {
-    color: colors.danger,
-    fontSize: 17,
-    fontWeight: '900',
-    marginBottom: 10,
+  scrollContentTablet: {
+    paddingHorizontal: 24,
+    paddingTop: 20,
   },
-
-  confirmText: {
-    color: colors.ink,
-    fontWeight: '700',
-    marginBottom: 6,
+  mainInner: {
+    width: '100%',
   },
-
-  confirmItem: {
-    color: colors.muted,
-    marginTop: 4,
+  mainInnerTablet: {
+    maxWidth: 1040,
+    alignSelf: 'center',
   },
-
-  confirmButtons: {
+  heroCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  heroTopRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 12,
+    alignItems: 'center',
+    marginBottom: 14,
   },
-
-  buttonHalf: {
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#2563EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  avatarText: {
+    color: '#FFFFFF',
+    fontSize: 24,
+    fontWeight: '900',
+  },
+  heroInfo: {
     flex: 1,
   },
-
-  loadingBox: {
+  heroNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: 10,
-    gap: 9,
+    justifyContent: 'space-between',
   },
-
-  loadingText: {
-    color: colors.danger,
-    fontWeight: '700',
+  heroName: {
+    fontSize: 20,
+    fontWeight: '900',
+    color: '#0F172A',
+    flex: 1,
+    marginRight: 8,
   },
-
-  errorBox: {
-    backgroundColor: '#FFF0F2',
-    borderRadius: 12,
+  idBadge: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  idBadgeText: {
+    fontSize: 11,
+    fontWeight: '900',
+    color: '#2563EB',
+  },
+  heroMeta: {
+    color: '#64748B',
+    fontSize: 13,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  quickInfoRow: {
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
     padding: 12,
-    marginTop: 12,
+    gap: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
-
-  errorBoxTitle: {
-    color: colors.danger,
+  quickInfoItem: {
+    flex: 1,
+  },
+  quickInfoLabel: {
+    fontSize: 9,
     fontWeight: '900',
-    marginBottom: 4,
+    color: '#64748B',
+    letterSpacing: 0.8,
+    marginBottom: 2,
   },
-
-  errorBoxText: {
-    color: colors.ink,
-    lineHeight: 20,
+  quickInfoValue: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#0F172A',
   },
-
-  errorTitle: {
-    color: colors.danger,
-    fontSize: 22,
+  quickInfoValueBlue: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#1D4ED8',
+  },
+  newRxBtn: {
+    backgroundColor: '#2563EB',
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#2563EB',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  newRxBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  sectionCard: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 16,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  sectionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  sectionIcon: {
+    fontSize: 18,
+    marginRight: 8,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '900',
+    color: '#0F172A',
+  },
+  countBadge: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  countBadgeText: {
+    fontSize: 12,
+    fontWeight: '900',
+    color: '#2563EB',
+  },
+  emptyHistoryBox: {
+    alignItems: 'center',
+    paddingVertical: 24,
+    paddingHorizontal: 16,
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderStyle: 'dashed',
+  },
+  emptyHistoryIcon: {
+    fontSize: 32,
     marginBottom: 8,
   },
-
-  errorText: {
-    color: colors.muted,
-    lineHeight: 22,
+  emptyHistoryTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: '#0F172A',
+  },
+  emptyHistoryText: {
+    fontSize: 12,
+    color: '#64748B',
+    textAlign: 'center',
+    marginTop: 4,
+    marginBottom: 14,
+    lineHeight: 18,
+    maxWidth: 260,
+  },
+  firstRxBtn: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  firstRxBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  visitsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 14,
+  },
+  visitCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    width: '100%',
+  },
+  visitCardTablet: {
+    width: '48.8%',
+    marginBottom: 0,
+  },
+  visitHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  dateBadge: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  dateBadgeText: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: '#1E293B',
+  },
+  medCountBadge: {
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: '#DBEAFE',
+  },
+  medCountText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: '#2563EB',
+  },
+  diagRow: {
+    marginBottom: 6,
+  },
+  diagLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#64748B',
+    textTransform: 'uppercase',
+    marginBottom: 3,
+  },
+  chipsWrap: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  diagChip: {
+    backgroundColor: '#EEF2FF',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderWidth: 1,
+    borderColor: '#E0E7FF',
+  },
+  diagChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#4338CA',
+  },
+  medsSummaryBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 4,
     marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  medsSummaryText: {
+    fontSize: 12,
+    color: '#334155',
+    fontWeight: '600',
+    lineHeight: 17,
+  },
+  visitActionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  viewRxBtn: {
+    flex: 1.5,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewRxBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  editRxBtn: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#CBD5E1',
+  },
+  editRxBtnText: {
+    color: '#1E293B',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  dangerCard: {
+    backgroundColor: '#FFF7F8',
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FEE2E2',
+    marginBottom: 14,
+  },
+  dangerTitle: {
+    fontSize: 14,
+    fontWeight: '900',
+    color: '#991B1B',
+  },
+  dangerSubtitle: {
+    fontSize: 12,
+    color: '#7F1D1D',
+    marginTop: 2,
+    marginBottom: 12,
+    lineHeight: 17,
+  },
+  deleteOutlineBtn: {
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.2,
+    borderColor: '#FCA5A5',
+    borderRadius: 10,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  deleteOutlineBtnText: {
+    color: '#DC2626',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 0.3,
+  },
+  confirmBox: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+  },
+  confirmTitle: {
+    fontSize: 13,
+    fontWeight: '900',
+    color: '#B91C1C',
+    marginBottom: 4,
+  },
+  confirmText: {
+    fontSize: 12,
+    color: '#334155',
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  deleteErrorText: {
+    color: '#DC2626',
+    fontSize: 11,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  confirmButtonsRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  cancelBtn: {
+    flex: 1,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelBtnText: {
+    color: '#475569',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  confirmDeleteBtn: {
+    flex: 1,
+    backgroundColor: '#DC2626',
+    borderRadius: 8,
+    paddingVertical: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmDeleteBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  notFoundBox: {
+    margin: 20,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 24,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  notFoundIcon: {
+    fontSize: 40,
+    marginBottom: 10,
+  },
+  notFoundTitle: {
+    fontSize: 18,
+    fontWeight: '900',
+    color: '#0F172A',
+    marginBottom: 6,
+  },
+  notFoundSubtitle: {
+    fontSize: 13,
+    color: '#64748B',
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  backBtn: {
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  backBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '900',
   },
 });

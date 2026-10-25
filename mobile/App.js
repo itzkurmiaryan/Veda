@@ -45,6 +45,7 @@ import Help from './src/screens/Help';
 import LoginReminder from './src/components/LoginReminder';
 
 import AppUpdateChecker from './src/components/AppUpdateChecker';
+import FeedbackModal from './src/components/FeedbackModal';
 
 
 const Stack =
@@ -61,6 +62,8 @@ function AppNav() {
     token,
     role,
     loading,
+    feedback,
+    hideFeedback,
   } = useAuth();
 
 
@@ -141,6 +144,14 @@ function AppNav() {
               />
 
               <Stack.Screen
+                name="PaymentDetails"
+                component={PaymentDetails}
+                options={{
+                  animation: 'slide_from_bottom',
+                }}
+              />
+
+              <Stack.Screen
                 name="About"
                 component={About}
               />
@@ -162,6 +173,9 @@ function AppNav() {
               <Stack.Screen
                 name="PaymentDetails"
                 component={PaymentDetails}
+                options={{
+                  animation: 'slide_from_bottom',
+                }}
               />
 
               <Stack.Screen
@@ -235,6 +249,17 @@ function AppNav() {
       */}
 
       <AppUpdateChecker />
+
+      <FeedbackModal
+        visible={Boolean(feedback?.visible)}
+        type={feedback?.type || 'loading'}
+        title={feedback?.title}
+        message={feedback?.message}
+        subMessage={feedback?.subMessage}
+        confirmText={feedback?.confirmText || 'OK'}
+        onConfirm={feedback?.onConfirm}
+        onClose={hideFeedback}
+      />
 
     </>
   );

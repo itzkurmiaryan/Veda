@@ -8,16 +8,19 @@ import * as Sharing from 'expo-sharing';
 
 import {
   ActivityIndicator,
+  Linking,
   Platform,
   StyleSheet,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 import { useFocusEffect } from '@react-navigation/native';
 
 import { api } from '../api/api';
 import { useAuth } from '../context/AuthContext';
+import { createPrescriptionHtml } from '../utils/prescriptionpdf';
 
 import {
   Button,
@@ -49,10 +52,12 @@ export default function VisitDetail({
 
 
   /* =======================================================
-     AUTH
+     AUTH & DIMENSIONS
   ======================================================= */
 
-  const { doctor } = useAuth();
+  const { doctor, showLoading, showSuccess, showError } = useAuth();
+  const { width } = useWindowDimensions();
+  const isTabletOrDesktop = width >= 768;
 
 
   /* =======================================================
@@ -251,10 +256,13 @@ export default function VisitDetail({
     }
 
     try {
-
       setDeleting(true);
-
       setDeleteError('');
+
+      showLoading(
+        'Deleting Prescription...',
+        'Removing prescription record from cloud database...'
+      );
 
       console.log(
         '➡️ DELETE URL:',
@@ -272,41 +280,30 @@ export default function VisitDetail({
       );
 
       setVisit(null);
-
       setShowDeleteConfirm(false);
 
-      navigation.goBack();
-
+      showSuccess(
+        'Prescription Deleted',
+        'The prescription record was permanently removed.',
+        () => {
+          navigation.goBack();
+        },
+        'DONE'
+      );
     } catch (error) {
-
       console.log(
         '❌ PRESCRIPTION DELETE FAILED'
       );
 
-      console.log(
-        'STATUS:',
-        error?.response?.status
-      );
-
-      console.log(
-        'DATA:',
-        error?.response?.data
-      );
-
-      console.log(
-        'MESSAGE:',
-        error?.message
-      );
-
-      setDeleteError(
+      const errMsg =
         error?.response?.data?.message ||
         error?.response?.data?.error ||
         error?.message ||
-        'Unable to delete prescription.'
-      );
+        'Unable to delete prescription.';
 
+      setDeleteError(errMsg);
+      showError('Delete Failed', errMsg);
     } finally {
-
       setDeleting(false);
 
     }
@@ -314,269 +311,162 @@ export default function VisitDetail({
 
 
   /* =======================================================
-     PRINT PRESCRIPTION
+     PRINT PRESCRIPTION (WIRELESS SYSTEM PRINT / SAVE AS PDF)
   ======================================================= */
 
   const printPrescription = async () => {
-
-    if (!visit) {
-      return;
-    }
+    if (!visit) return;
 
     try {
-
       setActionError('');
-
       setExporting(true);
 
-      console.log(
-        '🖨️ Creating prescription for printing...'
-      );
-
-      const patient =
-        getPatientObject(
-          visit?.patientId
-        );
-
-      const html =
-        createPrescriptionHtml(
-          visit,
-          patient,
-          doctor
-        );
-
-      console.log(
-        '🧾 Prescription HTML created'
-      );
+      const patient = getPatientObject(visit?.patientId);
+      const html = createPrescriptionHtml(visit, patient, doctor);
 
       if (Platform.OS === 'web') {
         await printHtmlInBrowser(html);
       } else {
-        await Print.printAsync({
-          html,
-        });
+        // Direct native print dialog (allows wireless printing or Save as PDF)
+        await Print.printAsync({ html });
       }
-
-      console.log(
-        '✅ Print screen opened'
-      );
-
     } catch (error) {
-
-      console.log(
-        '❌ PRINT ERROR:',
-        error
-      );
-
-      setActionError(
-        error?.message ||
-        'Unable to print prescription.'
-      );
-
+      console.log('❌ PRINT ERROR:', error);
+      setActionError(error?.message || 'Unable to print prescription.');
     } finally {
-
       setExporting(false);
-
     }
   };
 
 
   /* =======================================================
-     SHARE PDF
+     SHARE TO WHATSAPP (DIRECT PATIENT SUMMARY CHAT)
   ======================================================= */
 
-  const sharePrescription = async () => {
-
-    if (!visit) {
-      return;
-    }
+  const shareToWhatsApp = async () => {
+    if (!visit) return;
 
     try {
-
       setActionError('');
+      const patient = getPatientObject(visit?.patientId);
+      const patientName = patient?.name || 'Patient';
+      const cleanPhone = (patient?.mobile || '').replace(/[^0-9]/g, '');
+      const docName = doctor?.name ? `Dr. ${doctor.name}` : 'Doctor';
+      const clinic = doctor?.clinicName || 'Veda Health Clinic';
+      const dateStr = formatDate(visit?.visitDate);
 
+      // Build WhatsApp prescription summary
+      let text = `📋 *PRESCRIPTION - ${clinic.toUpperCase()}*\n`;
+      text += `👨‍⚕️ *Doctor:* ${docName}\n`;
+      text += `👤 *Patient:* ${patientName}${patient?.age ? ` (${patient.age}y)` : ''}\n`;
+      text += `🗓️ *Date:* ${dateStr}\n`;
+
+      const diag = safeArray(visit?.diagnosis);
+      if (diag.length > 0) {
+        text += `🩺 *Diagnosis:* ${diag.join(', ')}\n`;
+      }
+
+      const meds = Array.isArray(visit?.medicines) ? visit.medicines : [];
+      if (meds.length > 0) {
+        text += `\n💊 *Prescribed Medications:*\n`;
+        meds.forEach((m, idx) => {
+          const prep = m.preparation ? `${m.preparation.toUpperCase()}. ` : '';
+          const str = m.strength ? ` ${m.strength}` : '';
+          const dose = m.dosage ? ` | Dose: ${m.dosage}` : '';
+          const freq = m.frequency ? ` | ${m.frequency}` : '';
+          const dir = m.direction ? ` (${m.direction})` : '';
+          const dur = m.duration ? ` for ${m.duration}` : '';
+          const inst = m.instructions ? `\n   Note: ${m.instructions}` : '';
+          text += `${idx + 1}. *${prep}${m.name || 'Medicine'}${str}*${dose}${freq}${dir}${dur}${inst}\n`;
+        });
+      }
+
+      const adv = safeArray(visit?.advice);
+      if (adv.length > 0) {
+        text += `\n📋 *Advice:* ${adv.join('; ')}\n`;
+      }
+
+      if (visit?.followUpDate) {
+        text += `\n🗓️ *Follow-Up:* ${formatDate(visit.followUpDate)}\n`;
+      }
+
+      text += `\n_Generated via RxVault Smart Digital Healthcare_`;
+
+      const encoded = encodeURIComponent(text);
+      let targetNumber = '';
+      if (cleanPhone && cleanPhone.length >= 10) {
+        targetNumber = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+      }
+
+      const waAppUrl = targetNumber
+        ? `whatsapp://send?phone=${targetNumber}&text=${encoded}`
+        : `whatsapp://send?text=${encoded}`;
+
+      const waWebUrl = targetNumber
+        ? `https://api.whatsapp.com/send?phone=${targetNumber}&text=${encoded}`
+        : `https://api.whatsapp.com/send?text=${encoded}`;
+
+      let opened = false;
+      try {
+        const canOpen = await Linking.canOpenURL(waAppUrl);
+        if (canOpen) {
+          await Linking.openURL(waAppUrl);
+          opened = true;
+        }
+      } catch (e) {
+        console.log('App URL check failed, trying web URL:', e);
+      }
+
+      if (!opened) {
+        await Linking.openURL(waWebUrl);
+      }
+    } catch (error) {
+      console.log('❌ WHATSAPP ERROR:', error);
+      // Fallback to PDF file share
+      await sharePdfFile();
+    }
+  };
+
+
+  /* =======================================================
+     SHARE PDF FILE (EXPORT PDF TO ANY APP)
+  ======================================================= */
+
+  const sharePdfFile = async () => {
+    if (!visit) return;
+
+    try {
+      setActionError('');
       setExporting(true);
 
-      console.log(
-        '📄 Creating prescription PDF...'
-      );
-
-      const patient =
-        getPatientObject(
-          visit?.patientId
-        );
-
-      const html =
-        createPrescriptionHtml(
-          visit,
-          patient,
-          doctor
-        );
+      const patient = getPatientObject(visit?.patientId);
+      const html = createPrescriptionHtml(visit, patient, doctor);
 
       if (Platform.OS === 'web') {
         await printHtmlInBrowser(html);
         return;
       }
 
-      const file =
-        await Print.printToFileAsync({
-          html,
-        });
-
-      console.log(
-        '📄 PDF created:',
-        file?.uri
-      );
-
+      const file = await Print.printToFileAsync({ html });
       if (!file?.uri) {
-
-        throw new Error(
-          'PDF file was not created.'
-        );
+        throw new Error('PDF file could not be generated.');
       }
 
-      const available =
-        await Sharing.isAvailableAsync();
-
+      const available = await Sharing.isAvailableAsync();
       if (!available) {
-
-        throw new Error(
-          'Sharing is not available on this device.'
-        );
+        throw new Error('Sharing is not available on this device.');
       }
 
-      await Sharing.shareAsync(
-        file.uri,
-        {
-          mimeType:
-            'application/pdf',
-
-          dialogTitle:
-            'Share Prescription PDF',
-
-          UTI:
-            'com.adobe.pdf',
-        }
-      );
-
-      console.log(
-        '✅ Prescription PDF shared'
-      );
-
+      await Sharing.shareAsync(file.uri, {
+        mimeType: 'application/pdf',
+        dialogTitle: `Prescription - ${patient?.name || 'Patient'}`,
+        UTI: 'com.adobe.pdf',
+      });
     } catch (error) {
-
-      console.log(
-        '❌ SHARE PDF ERROR:',
-        error
-      );
-
-      setActionError(
-        error?.message ||
-        'Unable to create or share prescription PDF.'
-      );
-
+      console.log('❌ SHARE PDF ERROR:', error);
+      setActionError(error?.message || 'Unable to share prescription PDF.');
     } finally {
-
       setExporting(false);
-
-    }
-  };
-
-
-  /* =======================================================
-     DOWNLOAD / SAVE PDF
-  ======================================================= */
-
-  const downloadPrescription = async () => {
-
-    if (!visit) {
-      return;
-    }
-
-    try {
-
-      setActionError('');
-
-      setExporting(true);
-
-      console.log(
-        '📥 Creating PDF...'
-      );
-
-      const patient =
-        getPatientObject(
-          visit?.patientId
-        );
-
-      const html =
-        createPrescriptionHtml(
-          visit,
-          patient,
-          doctor
-        );
-
-      if (Platform.OS === 'web') {
-        await printHtmlInBrowser(html);
-        return;
-      }
-
-      const file =
-        await Print.printToFileAsync({
-          html,
-        });
-
-      console.log(
-        '📄 PDF generated:',
-        file?.uri
-      );
-
-      if (!file?.uri) {
-
-        throw new Error(
-          'PDF file was not created.'
-        );
-      }
-
-      const available =
-        await Sharing.isAvailableAsync();
-
-      if (!available) {
-
-        throw new Error(
-          'Sharing is not available on this device.'
-        );
-      }
-
-      await Sharing.shareAsync(
-        file.uri,
-        {
-          mimeType:
-            'application/pdf',
-
-          dialogTitle:
-            'Save or Share Prescription',
-
-          UTI:
-            'com.adobe.pdf',
-        }
-      );
-
-    } catch (error) {
-
-      console.log(
-        '❌ DOWNLOAD PDF ERROR:',
-        error
-      );
-
-      setActionError(
-        error?.message ||
-        'Unable to create prescription PDF.'
-      );
-
-    } finally {
-
-      setExporting(false);
-
     }
   };
 
@@ -877,11 +767,18 @@ export default function VisitDetail({
 
       <Card>
 
-        <Text
-          style={styles.sectionTitle}
-        >
-          Medicines
-        </Text>
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <Text
+            style={styles.sectionTitle}
+          >
+            Prescribed Medicines
+          </Text>
+          <View style={{ backgroundColor: '#EFF6FF', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 }}>
+            <Text style={{ fontSize: 11, fontWeight: '900', color: '#2563EB' }}>
+              {medicines.length} {medicines.length === 1 ? 'Med' : 'Meds'}
+            </Text>
+          </View>
+        </View>
 
         {medicines.length > 0 ? (
 
@@ -893,81 +790,91 @@ export default function VisitDetail({
                   medicine?._id ||
                   `medicine-${index}`
                 }
-                style={styles.medicine}
+                style={{
+                  backgroundColor: '#F8FAFC',
+                  borderRadius: 14,
+                  padding: 12,
+                  marginBottom: 10,
+                  borderWidth: 1,
+                  borderColor: '#E2E8F0',
+                }}
               >
 
-                <Text
-                  style={
-                    styles.medicineName
-                  }
-                >
-                  {medicine?.name ||
-                    'Medicine'}
-                </Text>
-
-                {medicine?.strength ? (
+                <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 6 }}>
+                  {medicine?.preparation ? (
+                    <View style={{ backgroundColor: '#DBEAFE', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 10, fontWeight: '900', color: '#1E40AF' }}>
+                        {medicine.preparation}
+                      </Text>
+                    </View>
+                  ) : null}
 
                   <Text
-                    style={
-                      styles.medicineDetail
-                    }
+                    style={{
+                      fontSize: 15,
+                      fontWeight: '800',
+                      color: '#0F172A',
+                    }}
                   >
-                    Strength:{' '}
-                    {medicine.strength}
+                    {index + 1}. {medicine?.name || 'Medicine'} {medicine?.strength || ''}
                   </Text>
+                </View>
 
-                ) : null}
+                {/* BADGES ROW */}
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 4 }}>
+                  {medicine?.dosage ? (
+                    <View style={{ backgroundColor: '#FFFFFF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569' }}>
+                        📏 {medicine.dosage}
+                      </Text>
+                    </View>
+                  ) : null}
 
-                {medicine?.dosage ? (
+                  {medicine?.frequency ? (
+                    <View style={{ backgroundColor: '#EFF6FF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#BFDBFE' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#1D4ED8' }}>
+                        ⏱️ {medicine.frequency}
+                      </Text>
+                    </View>
+                  ) : null}
 
-                  <Text
-                    style={
-                      styles.medicineDetail
-                    }
-                  >
-                    Dosage:{' '}
-                    {medicine.dosage}
-                  </Text>
+                  {medicine?.route ? (
+                    <View style={{ backgroundColor: '#FFFFFF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569' }}>
+                        📍 {medicine.route}
+                      </Text>
+                    </View>
+                  ) : null}
 
-                ) : null}
+                  {medicine?.direction ? (
+                    <View style={{ backgroundColor: '#ECFDF5', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#A7F3D0' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: '#047857' }}>
+                        🍽️ {medicine.direction}
+                      </Text>
+                    </View>
+                  ) : null}
 
-                {medicine?.frequency ? (
-
-                  <Text
-                    style={
-                      styles.medicineDetail
-                    }
-                  >
-                    Frequency:{' '}
-                    {medicine.frequency}
-                  </Text>
-
-                ) : null}
-
-                {medicine?.duration ? (
-
-                  <Text
-                    style={
-                      styles.medicineDetail
-                    }
-                  >
-                    Duration:{' '}
-                    {medicine.duration}
-                  </Text>
-
-                ) : null}
+                  {medicine?.duration ? (
+                    <View style={{ backgroundColor: '#FFFFFF', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: '#E2E8F0' }}>
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: '#475569' }}>
+                        🗓️ {medicine.duration}
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
 
                 {medicine?.instructions ? (
-
                   <Text
-                    style={
-                      styles.medicineDetail
-                    }
+                    style={{
+                      fontSize: 12,
+                      color: '#64748B',
+                      fontWeight: '600',
+                      marginTop: 8,
+                      lineHeight: 18,
+                    }}
                   >
-                    Instructions:{' '}
-                    {medicine.instructions}
+                    ℹ️ Instructions: {medicine.instructions}
                   </Text>
-
                 ) : null}
 
               </View>
@@ -1080,59 +987,62 @@ export default function VisitDetail({
         ) : null}
 
 
-        <Button
-          title={
-            exporting
-              ? 'CREATING PDF...'
-              : Platform.OS === 'web'
-                ? 'PRINT / SAVE PDF'
-                : 'SHARE PDF ON WHATSAPP'
-          }
-          disabled={exporting}
-          onPress={
-            sharePrescription
-          }
-        />
+        <View style={isTabletOrDesktop ? { flexDirection: 'row', flexWrap: 'wrap', gap: 10 } : undefined}>
+          {/* WHATSAPP SHARE */}
+          <View style={isTabletOrDesktop ? { flex: 1, minWidth: 200 } : { marginBottom: 10 }}>
+            <Button
+              title="💬 SEND ON WHATSAPP"
+              disabled={exporting}
+              onPress={shareToWhatsApp}
+            />
+          </View>
 
+          {/* SYSTEM PRINT / SAVE AS PDF */}
+          <View style={isTabletOrDesktop ? { flex: 1, minWidth: 200 } : { marginBottom: 10 }}>
+            <Button
+              title={exporting ? 'OPENING...' : '🖨️ PRINT / SAVE AS PDF'}
+              secondary
+              disabled={exporting}
+              onPress={printPrescription}
+            />
+          </View>
 
-        <Button
-          title={
-            exporting
-              ? 'PLEASE WAIT...'
-              : Platform.OS === 'web'
-                ? 'PRINT / SAVE PDF'
-                : 'DOWNLOAD / SHARE PDF'
-          }
-          secondary
-          disabled={exporting}
-          onPress={
-            downloadPrescription
-          }
-        />
+          {/* SHARE PDF FILE */}
+          <View style={isTabletOrDesktop ? { flex: 1, minWidth: 200 } : { marginBottom: 10 }}>
+            <Button
+              title={exporting ? 'GENERATING PDF...' : '📤 SHARE PDF FILE'}
+              secondary
+              disabled={exporting}
+              onPress={sharePdfFile}
+            />
+          </View>
 
+          {/* EDIT */}
+          <View style={isTabletOrDesktop ? { flex: 1, minWidth: 200 } : { marginBottom: 10 }}>
+            <Button
+              title="✏️ EDIT PRESCRIPTION"
+              secondary
+              disabled={exporting}
+              onPress={() =>
+                navigation.navigate('EditVisit', {
+                  visit,
+                })
+              }
+            />
+          </View>
 
-        <Button
-          title={
-            exporting
-              ? 'PLEASE WAIT...'
-              : 'PRINT PRESCRIPTION'
-          }
-          secondary
-          disabled={exporting}
-          onPress={
-            printPrescription
-          }
-        />
-
-
-        <Button
-          title="BACK"
-          secondary
-          disabled={exporting}
-          onPress={() =>
-            navigation.goBack()
-          }
-        />
+          {/* BACK */}
+          <View style={isTabletOrDesktop ? { flex: 1, minWidth: 200 } : { marginBottom: 10 }}>
+            <Button
+              title="BACK"
+              secondary
+              disabled={exporting}
+              onPress={() =>
+                navigation.goBack()
+              }
+            />
+          </View>
+        </View>
 
       </Card>
 
@@ -1521,1395 +1431,6 @@ function formatDate(value) {
     return String(value);
 
   }
-}
-
-
-/* =========================================================
-   HTML ESCAPE
-========================================================= */
-
-function escapeHtml(value) {
-
-  return String(
-    value ?? ''
-  )
-    .replace(
-      /&/g,
-      '&amp;'
-    )
-    .replace(
-      /</g,
-      '&lt;'
-    )
-    .replace(
-      />/g,
-      '&gt;'
-    )
-    .replace(
-      /"/g,
-      '&quot;'
-    )
-    .replace(
-      /'/g,
-      '&#039;'
-    );
-}
-
-
-/* =========================================================
-   HTML LIST
-========================================================= */
-
-function htmlList(items) {
-
-  const safeItems =
-    safeArray(items);
-
-  if (
-    safeItems.length === 0
-  ) {
-
-    return `
-      <div class="muted">
-        None recorded
-      </div>
-    `;
-  }
-
-  return `
-    <ul>
-      ${safeItems
-        .map(
-          (item) => `
-            <li>
-              ${escapeHtml(item)}
-            </li>
-          `
-        )
-        .join('')}
-    </ul>
-  `;
-}
-
-
-/* =========================================================
-   IMAGE
-========================================================= */
-
-function getImageHtml(
-  value,
-  className
-) {
-
-  if (!value) {
-    return '';
-  }
-
-  const source =
-    String(value).trim();
-
-  if (
-    !source.startsWith(
-      'http://'
-    ) &&
-    !source.startsWith(
-      'https://'
-    ) &&
-    !source.startsWith(
-      'data:image/'
-    )
-  ) {
-    return '';
-  }
-
-  return `
-    <img
-      class="${className}"
-      src="${escapeHtml(source)}"
-    />
-  `;
-}
-
-
-/* =========================================================
-   CREATE PRESCRIPTION HTML
-========================================================= */
-
-function createPrescriptionHtml(
-  visit,
-  patient,
-  doctor
-) {
-
-  /* -------------------------------------------------------
-     DOCTOR
-  ------------------------------------------------------- */
-
-  const doctorName =
-    doctor?.name ||
-    'Doctor';
-
-  const clinicName =
-    doctor?.clinicName ||
-    'Veda Clinic';
-
-  const clinicAddress =
-    doctor?.clinicAddress ||
-    '';
-
-  const phone =
-    doctor?.phone ||
-    '';
-
-  const email =
-    doctor?.email ||
-    '';
-
-  const qualification =
-    doctor?.qualification ||
-    '';
-
-  const specialization =
-    doctor?.specialization ||
-    '';
-
-  const registrationNumber =
-    doctor?.registrationNumber ||
-    '';
-
-  const clinicLogo =
-    doctor?.clinicLogo ||
-    '';
-
-  const signature =
-    doctor?.signature ||
-    '';
-
-
-  /* -------------------------------------------------------
-     PATIENT
-  ------------------------------------------------------- */
-
-  const patientName =
-    patient?.name ||
-    'Unknown Patient';
-
-  const patientId =
-    patient?.patientId ||
-    '—';
-
-  const age =
-    patient?.age !== undefined &&
-    patient?.age !== null &&
-    patient?.age !== ''
-      ? `${patient.age} years`
-      : '—';
-
-  const gender =
-    patient?.gender ||
-    '—';
-
-  const mobile =
-    patient?.mobile ||
-    '—';
-
-  const address =
-    patient?.address ||
-    '—';
-
-
-  /* -------------------------------------------------------
-     VISIT DATA
-  ------------------------------------------------------- */
-
-  const symptoms =
-    safeArray(
-      visit?.symptoms
-    );
-
-  const diagnosis =
-    safeArray(
-      visit?.diagnosis
-    );
-
-  const advice =
-    safeArray(
-      visit?.advice
-    );
-
-  const medicines =
-    Array.isArray(
-      visit?.medicines
-    )
-      ? visit.medicines
-      : [];
-
-
-  const date =
-    formatDate(
-      visit?.visitDate
-    );
-
-
-  /* -------------------------------------------------------
-     LOGO
-  ------------------------------------------------------- */
-
-  const logoHtml =
-    getImageHtml(
-      clinicLogo,
-      'clinic-logo'
-    );
-
-
-  /* -------------------------------------------------------
-     SIGNATURE
-  ------------------------------------------------------- */
-
-  const signatureHtml =
-    getImageHtml(
-      signature,
-      'signature-image'
-    );
-
-
-  /* -------------------------------------------------------
-     MEDICINES HTML
-  ------------------------------------------------------- */
-
-  const medicinesHtml =
-    medicines.length > 0
-
-      ? medicines
-          .map(
-            (
-              medicine,
-              index
-            ) => {
-
-              return `
-                <tr>
-
-                  <td class="medicine-number">
-                    ${index + 1}
-                  </td>
-
-                  <td>
-
-                    <strong>
-                      ${escapeHtml(
-                        medicine?.name ||
-                        'Medicine'
-                      )}
-                    </strong>
-
-                    ${
-                      medicine?.strength
-                        ? `
-                          <div class="small">
-                            ${escapeHtml(
-                              medicine.strength
-                            )}
-                          </div>
-                        `
-                        : ''
-                    }
-
-                  </td>
-
-                  <td>
-                    ${escapeHtml(
-                      medicine?.dosage ||
-                      '—'
-                    )}
-                  </td>
-
-                  <td>
-                    ${escapeHtml(
-                      medicine?.frequency ||
-                      '—'
-                    )}
-                  </td>
-
-                  <td>
-                    ${escapeHtml(
-                      medicine?.duration ||
-                      '—'
-                    )}
-                  </td>
-
-                  <td>
-                    ${escapeHtml(
-                      medicine?.instructions ||
-                      '—'
-                    )}
-                  </td>
-
-                </tr>
-              `;
-            }
-          )
-          .join('')
-
-      : `
-          <tr>
-
-            <td
-              colspan="6"
-              class="muted center"
-            >
-              No medicines prescribed
-            </td>
-
-          </tr>
-        `;
-
-
-  /* -------------------------------------------------------
-     VITALS
-  ------------------------------------------------------- */
-
-  const bp =
-    visit?.vitals?.bp ||
-    '—';
-
-  const weight =
-    visit?.vitals?.weight ||
-    '—';
-
-  const temperature =
-    visit?.vitals?.temperature ||
-    '—';
-
-  const sugar =
-    visit?.vitals?.sugar ||
-    '—';
-
-
-  /* -------------------------------------------------------
-     FOLLOW UP
-  ------------------------------------------------------- */
-
-  const followUp =
-    visit?.followUpDate
-      ? formatDate(
-          visit.followUpDate
-        )
-      : 'Not scheduled';
-
-
-  /* -------------------------------------------------------
-     RETURN HTML
-  ------------------------------------------------------- */
-
-  return `
-<!DOCTYPE html>
-
-<html>
-
-<head>
-
-<meta charset="UTF-8">
-
-<meta
-  name="viewport"
-  content="width=device-width, initial-scale=1"
-/>
-
-<title>
-Prescription - ${escapeHtml(patientName)}
-</title>
-
-
-<style>
-
-@page {
-  size: A4;
-  margin: 12mm;
-}
-
-
-* {
-  box-sizing: border-box;
-}
-
-
-html,
-body {
-  margin: 0;
-  padding: 0;
-  background: #ffffff;
-}
-
-
-body {
-  color: #172a46;
-  font-family:
-    Arial,
-    Helvetica,
-    sans-serif;
-  font-size: 10px;
-}
-
-
-.page {
-  width: 100%;
-  min-height: 270mm;
-  position: relative;
-  background: #ffffff;
-}
-
-
-/* =====================================================
-   TOP LINE
-===================================================== */
-
-.top-line {
-  height: 4px;
-  background: #13b8a6;
-  margin-bottom: 14px;
-}
-
-
-/* =====================================================
-   HEADER
-===================================================== */
-
-.header-table {
-  width: 100%;
-  border-collapse: collapse;
-  border-bottom: 1px solid #dce5ed;
-}
-
-
-.header-left {
-  width: 60%;
-  vertical-align: top;
-  padding-bottom: 12px;
-}
-
-
-.header-right {
-  width: 40%;
-  vertical-align: top;
-  text-align: right;
-  padding-bottom: 12px;
-}
-
-
-.doctor-name {
-  margin: 0;
-  font-size: 24px;
-  font-weight: bold;
-  color: #10233f;
-}
-
-
-.qualification {
-  margin-top: 5px;
-  color: #6b7a90;
-  font-size: 10px;
-}
-
-
-.registration {
-  margin-top: 4px;
-  color: #6b7a90;
-  font-size: 8px;
-}
-
-
-.clinic-logo {
-  max-width: 65px;
-  max-height: 55px;
-  margin-bottom: 4px;
-}
-
-
-.clinic-name {
-  color: #10233f;
-  font-size: 14px;
-  font-weight: bold;
-}
-
-
-.clinic-info {
-  color: #6b7a90;
-  font-size: 8px;
-  line-height: 1.5;
-}
-
-
-/* =====================================================
-   RX
-===================================================== */
-
-.rx-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 13px;
-  margin-bottom: 12px;
-}
-
-
-  .veda-badge {
-    display: inline-flex;
-    align-items: center;
-    gap: 10px;
-    background: linear-gradient(135deg, #dff9f6 0%, #dfeeff 100%);
-    border: 1px solid #bfe7e2;
-    border-radius: 12px;
-    padding: 8px 12px 8px 10px;
-    color: #10233f;
-    font-weight: 900;
-    box-shadow: 0 8px 20px rgba(16, 35, 63, 0.06);
-  }
-
-
-  .veda-mark {
-    width: 26px;
-    height: 26px;
-    border-radius: 8px;
-    background: linear-gradient(135deg, #10233f 0%, #1769ff 100%);
-    color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: 900;
-    letter-spacing: 0.3px;
-  }
-
-
-  .veda-word {
-    font-size: 11px;
-    letter-spacing: 1.8px;
-    text-transform: uppercase;
-}
-
-
-/* =====================================================
-   PATIENT
-===================================================== */
-
-.patient-box {
-  border: 1px solid #dce5ed;
-  border-left: 4px solid #13b8a6;
-  background: #f7fafc;
-  padding: 11px;
-  margin-bottom: 14px;
-}
-
-
-.heading {
-  color: #10233f;
-  font-size: 8px;
-  font-weight: bold;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  padding-bottom: 6px;
-  border-bottom: 1px solid #dce5ed;
-}
-
-
-.patient-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 7px;
-}
-
-
-.patient-table td {
-  width: 25%;
-  padding: 5px;
-  vertical-align: top;
-}
-
-
-.label {
-  color: #6b7a90;
-  font-size: 7px;
-  text-transform: uppercase;
-  letter-spacing: .5px;
-}
-
-
-.value {
-  color: #172a46;
-  font-size: 10px;
-  font-weight: bold;
-  margin-top: 2px;
-}
-
-
-/* =====================================================
-   TWO COLUMNS
-===================================================== */
-
-.two-column {
-  width: 100%;
-  border-collapse: collapse;
-  margin-bottom: 13px;
-}
-
-
-.two-column td {
-  width: 50%;
-  vertical-align: top;
-  padding-right: 8px;
-}
-
-
-.two-column td:last-child {
-  padding-right: 0;
-  padding-left: 8px;
-}
-
-
-/* =====================================================
-   SECTION
-===================================================== */
-
-.section {
-  margin-bottom: 13px;
-}
-
-
-.section-title {
-  color: #10233f;
-  font-size: 8px;
-  font-weight: bold;
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  padding-bottom: 6px;
-  border-bottom: 2px solid #13b8a6;
-}
-
-
-ul {
-  margin: 7px 0 0 0;
-  padding-left: 16px;
-}
-
-
-li {
-  font-size: 9px;
-  line-height: 1.5;
-  margin-bottom: 2px;
-}
-
-
-.muted {
-  color: #8a98a9;
-  font-size: 9px;
-}
-
-
-.center {
-  text-align: center;
-}
-
-
-/* =====================================================
-   VITALS
-===================================================== */
-
-.vitals-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-}
-
-
-.vitals-table td {
-  width: 25%;
-  border: 1px solid #e5ecf2;
-  padding: 7px;
-  background: #f7fafc;
-}
-
-
-/* =====================================================
-   MEDICINES
-===================================================== */
-
-.medicine-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 8px;
-  font-size: 8px;
-}
-
-
-.medicine-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-
-.medicine-rx {
-  color: #1769ff;
-    font-size: 13px;
-    line-height: 1;
-    letter-spacing: 1px;
-    font-weight: 900;
-
-.medicine-table th {
-  background: #10233f;
-  color: #ffffff;
-  font-size: 7px;
-  text-align: left;
-  text-transform: uppercase;
-  padding: 7px 5px;
-  border: 1px solid #10233f;
-}
-
-
-.medicine-table td {
-  padding: 7px 5px;
-  border: 1px solid #dce5ed;
-  vertical-align: top;
-}
-
-
-.medicine-number {
-  width: 25px;
-  text-align: center;
-  color: #1769ff;
-  font-weight: bold;
-}
-
-
-.small {
-  color: #6b7a90;
-  font-size: 8px;
-  margin-top: 2px;
-}
-
-
-/* =====================================================
-   ADVICE
-===================================================== */
-
-.advice-box {
-  background: #f0fbf9;
-  border: 1px solid #d9efeb;
-  padding: 10px;
-  margin-top: 12px;
-}
-
-
-/* =====================================================
-   BOTTOM
-===================================================== */
-
-.bottom-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin-top: 30px;
-}
-
-
-.follow-up {
-  width: 60%;
-  vertical-align: bottom;
-  font-size: 9px;
-}
-
-
-.signature {
-  width: 40%;
-  text-align: center;
-  vertical-align: bottom;
-}
-
-
-.signature-image {
-  max-width: 135px;
-  max-height: 50px;
-  margin-bottom: 4px;
-}
-
-
-.signature-line {
-  width: 150px;
-  height: 35px;
-  border-bottom: 1px solid #172a46;
-  margin: 0 auto 5px auto;
-}
-
-
-.signature-name {
-  color: #172a46;
-  font-size: 9px;
-  font-weight: bold;
-}
-
-
-.signature-reg {
-  color: #6b7a90;
-  font-size: 7px;
-  margin-top: 2px;
-}
-
-
-/* =====================================================
-   FOOTER
-===================================================== */
-
-.footer {
-  margin-top: 22px;
-  border-top: 1px solid #dce5ed;
-  padding-top: 6px;
-  text-align: center;
-  color: #8a98a9;
-  font-size: 7px;
-}
-
-
-</style>
-
-</head>
-
-
-<body>
-
-<div class="page">
-
-
-  <!-- TOP -->
-
-  <div class="top-line"></div>
-
-
-  <!-- DOCTOR HEADER -->
-
-  <table class="header-table">
-
-    <tr>
-
-      <td class="header-left">
-
-        <div class="doctor-name">
-
-          Dr.
-          ${escapeHtml(doctorName)}
-
-        </div>
-
-
-        ${
-          qualification ||
-          specialization
-            ? `
-              <div class="qualification">
-
-                ${escapeHtml(
-                  qualification
-                )}
-
-                ${
-                  specialization
-                    ? `
-                      |
-                      ${escapeHtml(
-                        specialization
-                      )}
-                    `
-                    : ''
-                }
-
-              </div>
-            `
-            : ''
-        }
-
-
-        ${
-          registrationNumber
-            ? `
-              <div class="registration">
-
-                Registration No:
-                ${escapeHtml(
-                  registrationNumber
-                )}
-
-              </div>
-            `
-            : ''
-        }
-
-      </td>
-
-
-      <td class="header-right">
-
-        ${logoHtml}
-
-
-        <div class="clinic-name">
-
-          ${escapeHtml(
-            clinicName
-          )}
-
-        </div>
-
-
-        ${
-          clinicAddress
-            ? `
-              <div class="clinic-info">
-
-                ${escapeHtml(
-                  clinicAddress
-                )}
-
-              </div>
-            `
-            : ''
-        }
-
-
-        ${
-          phone
-            ? `
-              <div class="clinic-info">
-
-                Phone:
-                ${escapeHtml(
-                  phone
-                )}
-
-              </div>
-            `
-            : ''
-        }
-
-
-        ${
-          email
-            ? `
-              <div class="clinic-info">
-
-                ${escapeHtml(
-                  email
-                )}
-
-              </div>
-            `
-            : ''
-        }
-
-      </td>
-
-    </tr>
-
-  </table>
-
-
-  <!-- RX -->
-
-  <table class="rx-table">
-
-    <tr>
-
-      <td>
-        <div class="veda-badge">
-          <div class="veda-mark">V</div>
-          <div class="veda-word">Veda</div>
-        </div>
-      </td>
-
-      <td class="prescription-date">
-
-        DATE:
-        ${escapeHtml(date)}
-
-      </td>
-
-    </tr>
-
-  </table>
-
-
-  <!-- PATIENT -->
-
-  <section class="patient-box">
-
-    <div class="heading">
-
-      Patient Information
-
-    </div>
-
-
-    <table class="patient-table">
-
-      <tr>
-
-        <td>
-
-          <div class="label">
-            Name
-          </div>
-
-          <div class="value">
-            ${escapeHtml(
-              patientName
-            )}
-          </div>
-
-        </td>
-
-
-        <td>
-
-          <div class="label">
-            Age
-          </div>
-
-          <div class="value">
-            ${escapeHtml(age)}
-          </div>
-
-        </td>
-
-
-        <td>
-
-          <div class="label">
-            Gender
-          </div>
-
-          <div class="value">
-            ${escapeHtml(gender)}
-          </div>
-
-        </td>
-
-
-        <td>
-
-          <div class="label">
-            Patient ID
-          </div>
-
-          <div class="value">
-            ${escapeHtml(patientId)}
-          </div>
-
-        </td>
-
-      </tr>
-
-
-      <tr>
-
-        <td>
-
-          <div class="label">
-            Mobile
-          </div>
-
-          <div class="value">
-            ${escapeHtml(mobile)}
-          </div>
-
-        </td>
-
-
-        <td colspan="3">
-
-          <div class="label">
-            Address
-          </div>
-
-          <div class="value">
-            ${escapeHtml(address)}
-          </div>
-
-        </td>
-
-      </tr>
-
-    </table>
-
-  </section>
-
-
-  <!-- SYMPTOMS + DIAGNOSIS -->
-
-  <table class="two-column">
-
-    <tr>
-
-      <td>
-
-        <section class="section">
-
-          <div class="section-title">
-            Symptoms / Complaints
-          </div>
-
-          ${htmlList(symptoms)}
-
-        </section>
-
-      </td>
-
-
-      <td>
-
-        <section class="section">
-
-          <div class="section-title">
-            Diagnosis
-          </div>
-
-          ${htmlList(diagnosis)}
-
-        </section>
-
-      </td>
-
-    </tr>
-
-  </table>
-
-
-  <!-- VITALS -->
-
-  <section class="section">
-
-    <div class="section-title">
-      Vitals
-    </div>
-
-
-    <table class="vitals-table">
-
-      <tr>
-
-        <td>
-
-          <div class="label">
-            Blood Pressure
-          </div>
-
-          <div class="value">
-            ${escapeHtml(bp)}
-          </div>
-
-        </td>
-
-
-        <td>
-
-          <div class="label">
-            Weight
-          </div>
-
-          <div class="value">
-            ${escapeHtml(weight)}
-          </div>
-
-        </td>
-
-
-        <td>
-
-          <div class="label">
-            Temperature
-          </div>
-
-          <div class="value">
-            ${escapeHtml(temperature)}
-          </div>
-
-        </td>
-
-
-        <td>
-
-          <div class="label">
-            Sugar
-          </div>
-
-          <div class="value">
-            ${escapeHtml(sugar)}
-          </div>
-
-        </td>
-
-      </tr>
-
-    </table>
-
-  </section>
-
-
-  <!-- MEDICINES -->
-
-  <section class="section">
-
-    <div class="section-title medicine-heading">
-      <span>Prescription</span>
-      <span class="medicine-rx">Veda</span>
-    </div>
-
-
-    <table class="medicine-table">
-
-      <thead>
-
-        <tr>
-
-          <th>
-            #
-          </th>
-
-          <th>
-            Medicine
-          </th>
-
-          <th>
-            Dosage
-          </th>
-
-          <th>
-            Frequency
-          </th>
-
-          <th>
-            Duration
-          </th>
-
-          <th>
-            Instructions
-          </th>
-
-        </tr>
-
-      </thead>
-
-
-      <tbody>
-
-        ${medicinesHtml}
-
-      </tbody>
-
-    </table>
-
-  </section>
-
-
-  <!-- ADVICE -->
-
-  ${
-    advice.length > 0
-      ? `
-        <section class="advice-box">
-
-          <div class="section-title">
-            Advice
-          </div>
-
-          ${htmlList(advice)}
-
-        </section>
-      `
-      : ''
-  }
-
-
-  <!-- FOLLOW UP + SIGNATURE -->
-
-  <table class="bottom-table">
-
-    <tr>
-
-      <td class="follow-up">
-
-        <strong>
-          Follow-up:
-        </strong>
-
-        ${escapeHtml(
-          followUp
-        )}
-
-      </td>
-
-
-      <td class="signature">
-
-        ${
-          signatureHtml
-            ? signatureHtml
-            : `
-              <div class="signature-line">
-              </div>
-            `
-        }
-
-
-        <div class="signature-name">
-
-          Dr.
-          ${escapeHtml(
-            doctorName
-          )}
-
-        </div>
-
-
-        ${
-          registrationNumber
-            ? `
-              <div class="signature-reg">
-
-                Reg. No:
-                ${escapeHtml(
-                  registrationNumber
-                )}
-
-              </div>
-            `
-            : ''
-        }
-
-      </td>
-
-    </tr>
-
-  </table>
-
-
-  <!-- FOOTER -->
-
-  <div class="footer">
-
-    ${escapeHtml(
-      clinicName
-    )}
-
-    &nbsp; • &nbsp;
-
-    Prescription
-
-  </div>
-
-
-</div>
-
-</body>
-
-</html>
-`;
 }
 
 

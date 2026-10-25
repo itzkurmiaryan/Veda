@@ -1,5 +1,7 @@
 import React, {
   useCallback,
+  useEffect,
+  useRef,
   useState,
 } from 'react';
 
@@ -43,7 +45,9 @@ import {
    PAYMENT DETAILS
 ===================================================== */
 
-export default function PaymentDetails({ navigation }) {
+export default function PaymentDetails({ navigation, route }) {
+
+  const scrollViewRef = useRef(null);
 
   const {
     doctor,
@@ -218,6 +222,12 @@ export default function PaymentDetails({ navigation }) {
       loadDetails,
     ])
   );
+
+  useEffect(() => {
+    if (route?.params?.openForm) {
+      openPaymentForm();
+    }
+  }, [route?.params?.openForm]);
 
 
   /* =====================================================
@@ -438,23 +448,13 @@ export default function PaymentDetails({ navigation }) {
   ===================================================== */
 
   const openPaymentForm = () => {
-
-    if (hasPendingPayment) {
-      return;
-    }
-
-    if (isPaid && !hasRejectedPayment) {
-
-      Alert.alert(
-        'Payment already verified',
-        'Your current payment has already been verified by the administrator.'
-      );
-
-      return;
-    }
-
     setShowPaymentForm(true);
 
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({
+        animated: true,
+      });
+    }, 150);
   };
 
 
@@ -667,9 +667,10 @@ export default function PaymentDetails({ navigation }) {
   ===================================================== */
 
   return (
-    <Screen scroll>
+    <Screen scroll={false}>
 
       <ScrollView
+        ref={scrollViewRef}
         nestedScrollEnabled
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -1406,8 +1407,7 @@ export default function PaymentDetails({ navigation }) {
                 PAYMENT FORM
             ================================================= */}
 
-            {showPaymentForm &&
-            !hasPendingPayment ? (
+            {showPaymentForm ? (
 
               <Card>
 
@@ -1429,7 +1429,11 @@ export default function PaymentDetails({ navigation }) {
                           styles.formEyebrow
                         }
                       >
-                        PAYMENT SUBMISSION
+                        {hasPendingPayment
+                          ? 'UPDATE PENDING PAYMENT'
+                          : hasRejectedPayment
+                            ? 'RESUBMIT PAYMENT'
+                            : 'PAYMENT SUBMISSION'}
                       </Text>
 
                       <Text
@@ -1437,7 +1441,13 @@ export default function PaymentDetails({ navigation }) {
                           styles.formTitle
                         }
                       >
-                        Payment details
+                        {hasPendingPayment
+                          ? 'Update payment details'
+                          : hasRejectedPayment
+                            ? 'Fix & resubmit payment'
+                            : isPaid
+                              ? 'Submit next period payment'
+                              : 'Payment details'}
                       </Text>
                     </View>
 
@@ -1697,7 +1707,9 @@ export default function PaymentDetails({ navigation }) {
                           styles.submitPaymentText
                         }
                       >
-                        Submit Payment for Verification
+                        {hasPendingPayment
+                          ? 'Update & Resubmit Payment'
+                          : 'Submit Payment for Verification'}
                       </Text>
 
                     )}

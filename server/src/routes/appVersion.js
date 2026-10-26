@@ -1,16 +1,14 @@
+
 const router = require('express').Router();
 
 /*
 |--------------------------------------------------------------------------
 | Veda App Version
 |--------------------------------------------------------------------------
-|
-| Change these values whenever you release a new native APK/AAB.
-|
 */
 
 const LATEST_VERSION = '1.0.2';
-const LATEST_VERSION_CODE = 3;
+const LATEST_VERSION_CODE = 8;
 
 const APK_URL =
   'https://github.com/itzkurmiaryan/Veda/releases/latest/download/veda.apk';
@@ -32,19 +30,12 @@ const RELEASE_NOTES =
 router.get('/', (req, res) => {
   res.json({
     success: true,
-
     appName: 'Veda',
-
     version: LATEST_VERSION,
-
     versionCode: LATEST_VERSION_CODE,
-
     forceUpdate: FORCE_UPDATE,
-
     downloadUrl: APK_URL,
-
     playStoreUrl: PLAY_STORE_URL,
-
     releaseNotes: RELEASE_NOTES,
   });
 });
